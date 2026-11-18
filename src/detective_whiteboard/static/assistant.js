@@ -142,13 +142,14 @@ const assistant = (() => {
     },
     search: {
       description:
-        "Find cards and properties. Modes: global (keyword against card names and 'Tag: Content' of properties), " +
-        "card (keyword against card names), property (tag equals the property tag ignoring case, and content " +
-        "matches its content). In keyword and content, * matches any characters and ? one character; matching " +
-        "ignores case and can be anywhere in the text. Returns the IDs of matching cards and properties.",
+        "Find cards, properties and links. Modes: global (keyword against card names, 'Tag: Content' of properties " +
+        "and link messages), card (keyword against card names), property (tag equals the property tag ignoring " +
+        "case, and content matches its content), link (keyword against link messages). In keyword and content, * " +
+        "matches any characters and ? one character; matching ignores case and can be anywhere in the text. " +
+        "Returns the IDs of matching cards, properties and links.",
       parameters: {
         mode: { type: "string", enum: ops.SEARCH_MODES },
-        keyword: string("For global and card modes"),
+        keyword: string("For global, card and link modes"),
         tag: string("For property mode"),
         content: string("For property mode; leave out to match every property with the tag"),
       },

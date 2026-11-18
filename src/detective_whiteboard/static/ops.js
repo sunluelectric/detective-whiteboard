@@ -16,7 +16,7 @@ const ops = (() => {
   };
   const STYLES = ["solid", "dashed", "dotted"];
   const DIRECTIONS = ["forward", "backward", "none"];
-  const SEARCH_MODES = ["global", "card", "property"];
+  const SEARCH_MODES = ["global", "card", "property", "link"];
   const CARD_SIZE = { width: 220, minWidth: 160, minHeight: 80 };
 
   function uid(prefix) {
@@ -238,29 +238,33 @@ const ops = (() => {
   }
 
   // Modes:
-  // - "global": keyword against card names and the "Tag: Content" text of properties.
+  // - "global": keyword against card names, the "Tag: Content" text of properties and link messages.
   // - "card": keyword against card names only.
+  // - "link": keyword against link messages only; links without a message never match.
   // - "property": tag equals the property tag (ignoring case, no wildcards) and content matches
   //   its content; an empty content matches every property with that tag.
   // Wildcard matching ignores case and matches anywhere in the text.
-  // Returns the IDs of matching cards and the { card, property } IDs of matching properties.
+  // Returns the IDs of matching cards and links, and the { card, property } IDs of matching properties.
   function search(board, { mode = "global", keyword, tag, content = "" }) {
     let cardMatches = () => false;
     let propertyMatches = () => false;
+    let linkMatches = () => false;
     if (oneOf(mode, SEARCH_MODES, "Search mode") === "property") {
       const wanted = text(tag, "Tag").toLowerCase();
       const pattern = wildcardRegExp(String(content).trim());
       propertyMatches = (p) => p.tag.toLowerCase() === wanted && pattern.test(p.content);
     } else {
       const pattern = wildcardRegExp(text(keyword, "Keyword"));
-      cardMatches = (c) => pattern.test(c.name);
+      if (mode !== "link") cardMatches = (c) => pattern.test(c.name);
       if (mode === "global") propertyMatches = (p) => pattern.test(`${p.tag}: ${p.content}`);
+      if (mode === "global" || mode === "link") linkMatches = (l) => !!l.message && pattern.test(l.message);
     }
     return {
       cards: board.cards.filter(cardMatches).map((c) => c.id),
       properties: board.cards.flatMap((c) =>
         c.properties.filter(propertyMatches).map((p) => ({ card: c.id, property: p.id })),
       ),
+      links: board.links.filter(linkMatches).map((l) => l.id),
     };
   }
 

@@ -41,7 +41,7 @@ All whiteboard state lives in the browser. Saving and loading go through the bro
   - Cards: `addCard(board, {name, x, y})`, `renameCard(board, cardId, name)`, `moveCard(board, cardId, x, y)`, `resizeCard(board, cardId, width, height)` (`height` `null` fits the content), `setCardPicture(board, cardId, dataUrl)`, `deleteCard(board, cardId)`.
   - Properties: `addProperty(board, cardId, {tag, content})`, `editProperty(board, cardId, propertyId, {tag, content})` (either field may be left out), `moveProperty(board, cardId, propertyId, position)` (0 is the top), `deleteProperty(board, cardId, propertyId)`.
   - Links: `addLink(board, source, target, {color, style, direction, message})`, `updateLink(board, linkId, {color, style, direction, message})`, `deleteLink(board, linkId)`. An endpoint is `{card}` or `{card, property}`. A color is a name from `ops.COLORS` or `#rrggbb`. Deleting a card or property also deletes its links.
-  - Search: `search(board, {mode, keyword, tag, content})` returns `{cards: [cardId], properties: [{card, property}]}`.
+  - Search: `search(board, {mode, keyword, tag, content})` returns `{cards: [cardId], properties: [{card, property}], links: [linkId]}`.
 - Assistant (`assistant.js`): one tool per operation (except creating, loading, pictures and chat), a system prompt with the current board (pictures left out), and `assistant.send(board, text, hooks)`, which calls `/api/chat` and runs tool calls until the model answers in text. A tool error is returned to the model as `{"error": ...}`. Every tool except `search` changes the board and is blocked once `hooks.stale()` reports that the user changed the board during the turn. It does not touch the page; `hooks` let the user interface redraw, confirm deletes, place new cards and report user edits.
 - User interface (`app.js`): dialogs, file handling, dragging, zoom and rendering. Every user action makes its change through `ops` and then calls `render()`.
 - Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board content is at least 4000 x 3000 and grows to keep a margin past the farthest card.
@@ -150,11 +150,12 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 
 - A search box sits in the top right corner of the whiteboard. Its button minimizes it to a small "Search" button and restores it. The link panel appears below it.
 - Wildcards: `*` matches any run of characters and `?` matches one character. All other characters are literal. Wildcard matching is case-insensitive and matches anywhere in the text.
-- Three tabs choose what is searched:
-  - Global: one keyword, matched against card names and the `<Tag>: <Content>` text of properties.
-  - Card: one keyword, matched against card names only. Global and Card share the keyword field.
+- Four tabs choose what is searched:
+  - Global: one keyword, matched against card names, the `<Tag>: <Content>` text of properties and link messages.
+  - Card: one keyword, matched against card names only.
+  - Link: one keyword, matched against link messages only. Links without a message never match. Global, Card and Link share the keyword field.
   - Property: a Tag field and a Content field. A property matches when its tag equals the Tag field, ignoring case and without wildcards, and its content matches the Content field with wildcards. An empty Content field matches every property with that tag. Nothing is highlighted until a tag is entered.
-- Matching cards and properties are highlighted in light yellow. A matching property inside a matching card uses a stronger yellow. The number of matches is shown next to the tabs, also while the box is minimized.
+- Matching cards and properties are highlighted in light yellow. A matching property inside a matching card uses a stronger yellow. A matching link gets a yellow band along the line and a yellow box behind its message. The number of matches is shown next to the tabs, also while the box is minimized.
 - Highlights update as the board changes. The search is a view setting and is not saved in the file.
 
 ### Assistant

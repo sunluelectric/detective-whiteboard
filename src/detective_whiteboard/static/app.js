@@ -17,7 +17,7 @@ let selectedLinkId = null;
 let pictureCardId = null;
 let searchMode = "global"; // one of ops.SEARCH_MODES
 let searchQuery = null; // argument for ops.search, or null when the search fields are empty
-let found = null; // { cards: Set, properties: Set } of IDs from the last search
+let found = null; // { cards: Set, properties: Set, links: Set } of IDs from the last search
 let chatBoard = null; // the board the assistant is working on, or null
 let chatError = null;
 let edits = 0; // user edits, so the assistant can tell whether the user changed the board during a turn
@@ -466,11 +466,15 @@ function runSearch() {
     return;
   }
   const result = ops.search(board, searchQuery);
-  found = { cards: new Set(result.cards), properties: new Set(result.properties.map((p) => p.property)) };
+  found = {
+    cards: new Set(result.cards),
+    properties: new Set(result.properties.map((p) => p.property)),
+    links: new Set(result.links),
+  };
 }
 
 function renderSearchCount() {
-  const count = found ? found.cards.size + found.properties.size : 0;
+  const count = found ? found.cards.size + found.properties.size + found.links.size : 0;
   $("search-count").textContent = !found ? "" : count === 0 ? "No matches" : `${count} match${count === 1 ? "" : "es"}`;
 }
 
@@ -790,7 +794,9 @@ function renderLinks() {
     if (link.direction === "forward") line.setAttribute("marker-end", `url(#${markerId})`);
     if (link.direction === "backward") line.setAttribute("marker-start", `url(#${markerId})`);
 
-    const group = svg("g", { class: link.id === selectedLinkId ? "selected" : "" });
+    const group = svg("g", {});
+    group.classList.toggle("selected", link.id === selectedLinkId);
+    group.classList.toggle("highlight", !!found?.links.has(link.id));
     group.addEventListener("click", (event) => {
       event.stopPropagation();
       selectLink(link.id);

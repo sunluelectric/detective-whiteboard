@@ -148,3 +148,10 @@ The user keeps working while the assistant waits for the model. Each request alr
 - [x] Assistant: `message` on `add_link` and `update_link`, a `resize_card` tool, and card sizes in the board snapshot.
 - [x] Check in headless Chrome: message editing and display, resizing, fit content, links following resized cards, save and load.
 - [x] Update `README.md` and `CLAUDE.md`.
+
+## Phase 18: Link search
+
+- [x] `ops.search` gets a `link` mode (keyword against link messages) and Global also matches link messages. Results include `links: [linkId]`.
+- [x] A Link tab in the search box, sharing the keyword field with Global and Card. Matching links get a yellow halo along the line and a yellow message box, and count towards the number of matches.
+- [x] The assistant's `search` tool describes the new mode and returns link IDs.
+- [x] Check in headless Chrome; update `README.md`.
