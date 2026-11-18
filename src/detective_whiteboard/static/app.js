@@ -103,15 +103,18 @@ async function confirmDiscard() {
   return !board || !dirty || askConfirm("Unsaved changes", "The current whiteboard has unsaved changes. Discard them?", "Discard");
 }
 
-// Links whose endpoints are missing cannot be drawn, so they are dropped.
-function endpointExists(endpoint) {
-  const card = findCard(endpoint.card);
-  return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));
-}
-
+// The data is checked and cleaned before it replaces the current board, so a bad file leaves it untouched.
 function openBoard(data) {
+  if (typeof data.name !== "string" || !Array.isArray(data.cards) || !Array.isArray(data.links)) {
+    throw new Error("not a whiteboard file");
+  }
+  // Links whose endpoints are missing cannot be drawn, so they are dropped.
+  const exists = (endpoint) => {
+    const card = data.cards.find((c) => c.id === endpoint.card);
+    return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));
+  };
+  data.links = data.links.filter((l) => exists(l.source) && exists(l.target));
   board = data;
-  board.links = board.links.filter((l) => endpointExists(l.source) && endpointExists(l.target));
   dirty = false;
   selectedLinkId = null;
   linkSource = null;
@@ -138,20 +141,20 @@ async function saveBoard() {
   const json = JSON.stringify(board, null, 2);
   const fileName = `${board.name}.json`;
   if (window.showSaveFilePicker) {
-    let handle;
     try {
-      handle = await window.showSaveFilePicker({
+      const handle = await window.showSaveFilePicker({
         suggestedName: fileName,
         types: [{ description: "Whiteboard JSON", accept: { "application/json": [".json"] } }],
       });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
     } catch (err) {
-      if (err.name === "AbortError") return;
-      throw err;
+      if (err.name !== "AbortError") showMessage("Save failed", `Could not save ${fileName}: ${err.message}`);
+      return;
     }
-    const writable = await handle.createWritable();
-    await writable.write(json);
-    await writable.close();
   } else {
+    // A download cannot report whether the user kept the file, so it counts as saved.
     const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
     el("a", { href: url, download: fileName }).click();
     URL.revokeObjectURL(url);
@@ -281,6 +284,7 @@ function startDrag(event, card, cardEl) {
   const up = () => {
     header.removeEventListener("pointermove", move);
     header.removeEventListener("pointerup", up);
+    header.removeEventListener("pointercancel", up);
     if (card.x !== origX || card.y !== origY) {
       dirty = true;
       renderToolbar();
@@ -288,6 +292,7 @@ function startDrag(event, card, cardEl) {
   };
   header.addEventListener("pointermove", move);
   header.addEventListener("pointerup", up);
+  header.addEventListener("pointercancel", up);
 }
 
 // ---------- Properties ----------
@@ -317,7 +322,8 @@ async function editProperty(prop) {
   changed();
 }
 
-function deleteProperty(card, prop) {
+async function deleteProperty(card, prop) {
+  if (!(await askConfirm("Delete property", `Delete property "${prop.tag}" and its links?`, "Delete"))) return;
   card.properties = card.properties.filter((p) => p !== prop);
   board.links = board.links.filter((l) => l.source.property !== prop.id && l.target.property !== prop.id);
   changed();
@@ -372,6 +378,7 @@ cardsLayer.addEventListener(
 );
 
 function selectLink(id) {
+  linkSource = null;
   selectedLinkId = id;
   render();
 }
@@ -484,8 +491,10 @@ function boardRect(node) {
 }
 
 function endpointRect(endpoint) {
-  const cardEl = cardsLayer.querySelector(`.card[data-id="${endpoint.card}"]`);
-  const node = endpoint.property ? cardEl.querySelector(`.property[data-id="${endpoint.property}"]`) : cardEl;
+  const cardEl = cardsLayer.querySelector(`.card[data-id="${CSS.escape(endpoint.card)}"]`);
+  const node = endpoint.property
+    ? cardEl.querySelector(`.property[data-id="${CSS.escape(endpoint.property)}"]`)
+    : cardEl;
   return { rect: boardRect(node), isProperty: !!endpoint.property };
 }
 

@@ -51,3 +51,13 @@ Development phases for the first version. The design is in `README.md`. Each pha
 - [x] `showDialog()` in `app.js` returns a promise; `prompt()`, `confirm()` and `alert()` are replaced by it. Property add and edit ask for Tag and Content in one dialog.
 - [x] Escape in the dialog does not also cancel link mode or deselect a link.
 - [x] Update `README.md`.
+
+## Phase 8: Review fixes
+
+- [x] Load checks for `name`, `cards` and `links` and filters links before replacing the current board, so a bad file leaves the open board untouched.
+- [x] Clicking a link while in link mode leaves link mode before selecting the link.
+- [x] Deleting a property asks for confirmation.
+- [x] Dragging also ends on `pointercancel`.
+- [x] Card and property IDs are escaped with `CSS.escape` in selectors.
+- [x] Save shows an error and keeps the unsaved marker if writing the file fails.
+- [x] Update `README.md`.

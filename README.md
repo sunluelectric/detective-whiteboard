@@ -77,8 +77,8 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 ### Whiteboard
 
 - Create: asks for a name and starts an empty board.
-- Save: downloads `<name>.json`. Where the browser supports `showSaveFilePicker` (Chromium), a save dialog opens with that name filled in. Otherwise the file goes to the download folder.
-- Load: opens a file dialog for `.json` files. The whiteboard name is taken from the file's contents, not from the file name. Links pointing to a card or property that does not exist are dropped.
+- Save: downloads `<name>.json`. Where the browser supports `showSaveFilePicker` (Chromium), a save dialog opens with that name filled in. Otherwise the file goes to the download folder. If writing the file fails, an error is shown and the board stays marked as unsaved.
+- Load: opens a file dialog for `.json` files. The whiteboard name is taken from the file's contents, not from the file name. Links pointing to a card or property that does not exist are dropped. A file without a `name`, `cards` and `links` is rejected with an error, and the open board is kept.
 - Rename: changes `name`, which is used for the next save.
 - Create and Load ask for confirmation when the current board has unsaved changes.
 - Every button except Create and Load is disabled until a board is open.
@@ -97,11 +97,11 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 - Shown as `<Tag>: <Content>`, with up, down, edit, delete and link buttons on each row.
 - Adding a property asks for tag and content in one dialog.
 - Edit property: asks for tag and content again, pre-filled with the current values. The property keeps its ID, so its links stay attached.
-- Delete property: removes the property and every link attached to it.
+- Delete property: asks for confirmation, then removes the property and every link attached to it.
 
 ### Links
 
-- Clicking a link button enters link mode with that card or property as the source. The next click on a card or property of a different card becomes the target, and the link is created. Pressing Escape, or clicking the source's own card, cancels link mode.
+- Clicking a link button enters link mode with that card or property as the source. The next click on a card or property of a different card becomes the target, and the link is created. Pressing Escape, clicking the source's own card, or clicking empty board space cancels link mode. Clicking an existing link leaves link mode and selects that link.
 - A new link is solid black with direction `forward`.
 - Anchors: a card link attaches to the card's border. A property link attaches to the left or right edge of the property row, whichever side faces the other endpoint.
 - Every link is drawn twice: a visible line, and a wide transparent line underneath that makes clicking easy.
