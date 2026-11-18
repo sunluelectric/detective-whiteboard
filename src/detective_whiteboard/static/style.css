@@ -123,10 +123,38 @@ body.linking .card, body.linking .property { cursor: crosshair; }
 .link-source { outline: 2px solid #1e6fd9; }
 body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e6fd9; }
 
-#link-panel {
+#side {
   position: fixed;
   right: 16px;
   top: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+#search {
+  background: #fff;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  padding: 4px 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.search-head { display: flex; align-items: center; gap: 6px; }
+#search-tabs { display: flex; flex: 1; gap: 2px; }
+#search-tabs button { font: inherit; padding: 2px 8px; border: 1px solid #ccc; border-radius: 3px; background: #f4f1e8; }
+#search-tabs button.active { background: #d9cfb4; border-color: #999; font-weight: 600; }
+.search-fields { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.search-fields input { width: 260px; font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; }
+#search.collapsed #search-tabs, #search.collapsed .search-fields { display: none; }
+#search-count { color: #555; white-space: nowrap; }
+#search-count:empty { display: none; }
+
+.card.highlight, .card.highlight .card-header, .property.highlight { background: #fff59d; }
+/* A matching property inside a matching card needs a stronger shade to stand out. */
+.card.highlight .property.highlight { background: #ffeb3b; }
+
+#link-panel {
   background: #fff;
   border: 1px solid #aaa;
   border-radius: 4px;

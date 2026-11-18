@@ -112,6 +112,17 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
   - Delete button.
 - Clicking empty board space deselects the link.
 
+### Search
+
+- A search box sits in the top right corner of the whiteboard. Its button minimizes it to a small "Search" button and restores it. The link panel appears below it.
+- Wildcards: `*` matches any run of characters and `?` matches one character. All other characters are literal. Wildcard matching is case-insensitive and matches anywhere in the text.
+- Three tabs choose what is searched:
+  - Global: one keyword, matched against card names and the `<Tag>: <Content>` text of properties.
+  - Card: one keyword, matched against card names only. Global and Card share the keyword field.
+  - Property: a Tag field and a Content field. A property matches when its tag equals the Tag field, ignoring case and without wildcards, and its content matches the Content field with wildcards. An empty Content field matches every property with that tag. Nothing is highlighted until a tag is entered.
+- Matching cards and properties are highlighted in light yellow. A matching property inside a matching card uses a stronger yellow. The number of matches is shown next to the tabs, also while the box is minimized.
+- Highlights update as the board changes. The search is a view setting and is not saved in the file.
+
 ## Out of Scope for the First Version
 
 Resizing cards, undo, and links between two properties of the same card.

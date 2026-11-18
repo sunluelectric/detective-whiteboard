@@ -61,3 +61,19 @@ Development phases for the first version. The design is in `README.md`. Each pha
 - [x] Card and property IDs are escaped with `CSS.escape` in selectors.
 - [x] Save shows an error and keeps the unsaved marker if writing the file fails.
 - [x] Update `README.md`.
+
+## Phase 9: Search
+
+- [x] Search box in the top right corner of the whiteboard, with a button that minimizes it to a small "Search" button and restores it. The link panel stacks below it.
+- [x] Keyword search, case-insensitive, matching anywhere in the text. `*` matches any run of characters and `?` one character; all other characters are literal.
+- [x] Cards whose name matches and properties whose `Tag: Content` text matches are highlighted in light yellow. A match count is shown, also while minimized.
+- [x] Highlights follow edits, since they are applied in `render()`. The search is a view setting and is not saved.
+- [x] Update `README.md`.
+
+## Phase 10: Search modes
+
+- [x] Three tabs in the search box: Global, Card and Property. Global and Card share the keyword field; Property has Tag and Content fields. Minimizing hides tabs and fields.
+- [x] Global: card names and `Tag: Content` text of properties (as in Phase 9).
+- [x] Card: card names only.
+- [x] Property: properties whose tag equals the Tag field (case-insensitive, no wildcards) and whose content matches the Content field (wildcards, anywhere in the text). An empty Content field matches every property with that tag; an empty Tag field matches nothing.
+- [x] Update `README.md`.

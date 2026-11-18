@@ -30,23 +30,41 @@
     </div>
     <div id="empty-hint">Create or load a whiteboard to begin.</div>
   </main>
-  <div id="link-panel" hidden>
-    <div class="row"><span>Color</span><span id="link-colors"></span></div>
-    <div class="row"><span>Style</span>
-      <select id="link-style">
-        <option value="solid">Solid</option>
-        <option value="dashed">Dashed</option>
-        <option value="dotted">Dotted</option>
-      </select>
+  <div id="side">
+    <div id="search">
+      <div class="search-head">
+        <span id="search-tabs">
+          <button data-mode="global" class="active">Global</button>
+          <button data-mode="card">Card</button>
+          <button data-mode="property">Property</button>
+        </span>
+        <span id="search-count"></span>
+        <button id="search-toggle" class="icon" title="Minimize search">&minus;</button>
+      </div>
+      <div class="search-fields">
+        <input id="search-input" type="search" placeholder="Keyword (* and ? wildcards)" autocomplete="off" data-needs-board>
+        <input id="search-tag" type="search" placeholder="Tag (exact)" autocomplete="off" data-needs-board hidden>
+        <input id="search-content" type="search" placeholder="Content (* and ? wildcards)" autocomplete="off" data-needs-board hidden>
+      </div>
     </div>
-    <div class="row"><span>Direction</span>
-      <select id="link-direction">
-        <option value="forward">A to B</option>
-        <option value="backward">B to A</option>
-        <option value="none">Undirected</option>
-      </select>
+    <div id="link-panel" hidden>
+      <div class="row"><span>Color</span><span id="link-colors"></span></div>
+      <div class="row"><span>Style</span>
+        <select id="link-style">
+          <option value="solid">Solid</option>
+          <option value="dashed">Dashed</option>
+          <option value="dotted">Dotted</option>
+        </select>
+      </div>
+      <div class="row"><span>Direction</span>
+        <select id="link-direction">
+          <option value="forward">A to B</option>
+          <option value="backward">B to A</option>
+          <option value="none">Undirected</option>
+        </select>
+      </div>
+      <div class="row"><button id="link-delete">Delete link</button></div>
     </div>
-    <div class="row"><button id="link-delete">Delete link</button></div>
   </div>
   <dialog id="dialog">
     <form method="dialog">

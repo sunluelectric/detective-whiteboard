@@ -24,6 +24,10 @@ let zoom = 1;
 let linkSource = null; // { card, property }
 let selectedLinkId = null;
 let pictureCardId = null;
+let searchMode = "global"; // "global", "card" or "property"
+let searchActive = false;
+let cardMatches = () => false;
+let propertyMatches = () => false;
 
 const $ = (id) => document.getElementById(id);
 const viewport = $("viewport");
@@ -408,6 +412,67 @@ window.addEventListener("beforeunload", (event) => {
   if (board && dirty) event.preventDefault();
 });
 
+// ---------- Search ----------
+
+// "*" matches any run of characters and "?" one character; everything else is literal.
+function wildcardRegExp(text) {
+  const source = [...text]
+    .map((ch) => (ch === "*" ? ".*" : ch === "?" ? "." : ch.replace(/[.+^${}()|[\]\\]/g, "\\$&")))
+    .join("");
+  return new RegExp(source, "i");
+}
+
+// Rebuilds cardMatches and propertyMatches from the current tab and fields.
+function updateSearch() {
+  cardMatches = propertyMatches = () => false;
+  if (searchMode === "property") {
+    const tag = $("search-tag").value.trim().toLowerCase();
+    const content = wildcardRegExp($("search-content").value.trim());
+    searchActive = !!tag;
+    if (searchActive) propertyMatches = (p) => p.tag.toLowerCase() === tag && content.test(p.content);
+  } else {
+    const text = $("search-input").value.trim();
+    searchActive = !!text;
+    if (searchActive) {
+      const pattern = wildcardRegExp(text);
+      cardMatches = (c) => pattern.test(c.name);
+      if (searchMode === "global") propertyMatches = (p) => pattern.test(`${p.tag}: ${p.content}`);
+    }
+  }
+  render();
+}
+
+function renderSearchCount() {
+  let count = 0;
+  if (board && searchActive) {
+    for (const card of board.cards) count += cardMatches(card) + card.properties.filter(propertyMatches).length;
+  }
+  $("search-count").textContent =
+    !board || !searchActive ? "" : count === 0 ? "No matches" : `${count} match${count === 1 ? "" : "es"}`;
+}
+
+for (const id of ["search-input", "search-tag", "search-content"]) $(id).addEventListener("input", updateSearch);
+
+for (const tab of $("search-tabs").children) {
+  tab.addEventListener("click", () => {
+    searchMode = tab.dataset.mode;
+    for (const other of $("search-tabs").children) other.classList.toggle("active", other === tab);
+    const isProperty = searchMode === "property";
+    $("search-input").hidden = isProperty;
+    $("search-tag").hidden = !isProperty;
+    $("search-content").hidden = !isProperty;
+    $(isProperty ? "search-tag" : "search-input").focus();
+    updateSearch();
+  });
+}
+
+$("search-toggle").addEventListener("click", () => {
+  const collapsed = $("search").classList.toggle("collapsed");
+  $("search-toggle").textContent = collapsed ? "Search" : "−";
+  $("search-toggle").title = collapsed ? "Show search" : "Minimize search";
+  if (!collapsed) $(searchMode === "property" ? "search-tag" : "search-input").focus();
+});
+
 // ---------- Rendering ----------
 
 function render() {
@@ -415,6 +480,7 @@ function render() {
   renderCards();
   renderLinks();
   renderLinkPanel();
+  renderSearchCount();
 }
 
 function renderToolbar() {
@@ -435,6 +501,7 @@ function renderCard(card) {
   const isSource = linkSource && linkSource.card === card.id;
   const cardEl = el("div", { class: "card", "data-id": card.id });
   if (isSource && !linkSource.property) cardEl.classList.add("link-source");
+  if (cardMatches(card)) cardEl.classList.add("highlight");
   cardEl.style.left = `${card.x}px`;
   cardEl.style.top = `${card.y}px`;
   cardEl.style.width = `${CARD_WIDTH}px`;
@@ -471,6 +538,7 @@ function renderCard(card) {
       iconButton("×", "Delete property", () => deleteProperty(card, prop)),
     );
     if (isSource && linkSource.property === prop.id) row.classList.add("link-source");
+    if (propertyMatches(prop)) row.classList.add("highlight");
     list.append(row);
   });
 
