@@ -37,7 +37,7 @@ Development phases for the first version. The design is in `README.md`. Each pha
 - [x] Update `CLAUDE.md` "Current State and Commands".
 - [x] End-to-end check in headless Chrome: create, cards, pictures, properties, reorder, links, link editing, zoom, load round trip, card deletion.
 - [x] Simulated mouse input in headless Chrome: dragging at 100% and 50% zoom, Ctrl + wheel zoom, link selection and deselection.
-- [ ] Check the save dialog by hand in a real browser (it needs a user gesture).
+- [x] Check the save dialog by hand in a real browser (it needs a user gesture).
 
 ## Phase 6: Loose ends
 
