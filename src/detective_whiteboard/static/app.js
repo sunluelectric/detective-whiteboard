@@ -18,8 +18,11 @@ let pictureCardId = null;
 let searchMode = "global"; // one of ops.SEARCH_MODES
 let searchQuery = null; // argument for ops.search, or null when the search fields are empty
 let found = null; // { cards: Set, properties: Set } of IDs from the last search
-let chatBusy = false;
+let chatBoard = null; // the board the assistant is working on, or null
 let chatError = null;
+let edits = 0; // user edits, so the assistant can tell whether the user changed the board during a turn
+let dragging = false;
+let renderPending = false; // a render was put off until the current drag ends
 
 const $ = (id) => document.getElementById(id);
 const viewport = $("viewport");
@@ -31,7 +34,9 @@ function findCard(id) {
   return board.cards.find((c) => c.id === id);
 }
 
+// After a change made by the user.
 function changed() {
+  edits++;
   dirty = true;
   render();
 }
@@ -52,8 +57,16 @@ function iconButton(text, title, onclick) {
 
 // ---------- Dialog ----------
 
-// Resolves to the trimmed field values on OK, or null on Cancel / Escape.
-function showDialog({ title, message = "", fields = [], ok = "OK", cancel = "Cancel" }) {
+let dialogQueue = Promise.resolve();
+
+// Resolves to the trimmed field values on OK, or null on Cancel / Escape. A dialog waits until the open
+// one closes, so an assistant confirmation never replaces a dialog the user is filling in.
+function showDialog(options) {
+  dialogQueue = dialogQueue.then(() => openDialog(options));
+  return dialogQueue;
+}
+
+function openDialog({ title, message = "", fields = [], ok = "OK", cancel = "Cancel" }) {
   const dialog = $("dialog");
   const inputs = fields.map(({ value = "" }) =>
     el("input", { value, required: "", pattern: ".*\\S.*", title: "Must not be blank", autocomplete: "off" }),
@@ -250,6 +263,8 @@ $("file-picture").addEventListener("change", async (event) => {
 function startDrag(event, card, cardEl) {
   if (event.button !== 0 || event.target.closest("button") || linkSource) return;
   event.preventDefault();
+  dragging = true;
+  let moved = false;
   const header = event.currentTarget;
   const startX = event.clientX;
   const startY = event.clientY;
@@ -257,7 +272,12 @@ function startDrag(event, card, cardEl) {
   const origY = card.y;
   header.setPointerCapture(event.pointerId);
   const move = (e) => {
+    if (!findCard(card.id)) return; // deleted by the assistant during the drag
     ops.moveCard(board, card.id, origX + (e.clientX - startX) / zoom, origY + (e.clientY - startY) / zoom);
+    if (!moved && (card.x !== origX || card.y !== origY)) {
+      moved = true;
+      edits++;
+    }
     cardEl.style.left = `${card.x}px`;
     cardEl.style.top = `${card.y}px`;
     renderLinks();
@@ -266,10 +286,10 @@ function startDrag(event, card, cardEl) {
     header.removeEventListener("pointermove", move);
     header.removeEventListener("pointerup", up);
     header.removeEventListener("pointercancel", up);
-    if (card.x !== origX || card.y !== origY) {
-      dirty = true;
-      renderToolbar();
-    }
+    dragging = false;
+    if (moved) dirty = true;
+    if (renderPending) render();
+    else renderToolbar();
   };
   header.addEventListener("pointermove", move);
   header.addEventListener("pointerup", up);
@@ -386,6 +406,9 @@ window.addEventListener("beforeunload", (event) => {
   if (board && dirty) event.preventDefault();
 });
 
+// A user action can fail when the assistant deleted its card, property or link while a dialog was open.
+window.addEventListener("unhandledrejection", (event) => showMessage("Error", event.reason?.message ?? String(event.reason)));
+
 // ---------- Search ----------
 
 // Builds the search query from the current tab and fields.
@@ -437,25 +460,35 @@ $("search-toggle").addEventListener("click", () => {
 
 // ---------- Assistant ----------
 
+// The user can keep working while the assistant waits for the model. If they change the board (or open
+// another one), the assistant's remaining changes in this turn are blocked; see assistant.send.
 async function sendChat() {
   const text = $("chat-input").value.trim();
-  if (!text || chatBusy) return;
+  if (!text || !board || chatBoard) return;
   $("chat-input").value = "";
-  chatBusy = true;
+  const turnBoard = board;
+  const start = edits;
+  chatBoard = turnBoard;
   chatError = null;
+  let error = null;
   try {
-    await assistant.send(board, text, {
-      onUpdate: changed,
+    await assistant.send(turnBoard, text, {
+      onUpdate: () => {
+        if (board === turnBoard) dirty = true;
+        render();
+      },
       confirm: (question) => askConfirm("Assistant", question, "Allow"),
       cardPosition: newCardPosition,
+      stale: () => board !== turnBoard || edits !== start,
       model: $("chat-model").value,
     });
   } catch (err) {
-    chatError = err.message;
+    error = err.message;
   }
-  chatBusy = false;
+  chatBoard = null;
+  if (board === turnBoard) chatError = error;
   render();
-  $("chat-input").focus();
+  if (document.activeElement === document.body) $("chat-input").focus();
 }
 
 async function clearChat() {
@@ -475,14 +508,16 @@ function actionLine(call, results) {
   const detail = args.name ?? (args.tag ? `${args.tag}${args.content ? `: ${args.content}` : ""}` : args.keyword) ?? "";
   const result = results.get(call.call_id);
   const label = call.name.replaceAll("_", " ") + (detail ? `: ${detail}` : "");
-  return result?.error ? el("div", { class: "msg action failed" }, `${label} (${result.error})`) : el("div", { class: "msg action" }, label);
+  if (!result?.error) return el("div", { class: "msg action" }, label);
+  return el("div", { class: "msg action failed" }, `${label} (${result.blocked ? "blocked" : result.error})`);
 }
 
 let renderedChat = []; // what the chat panel shows, so it is rebuilt and scrolled only when that changes
 
 function renderChat() {
   const chat = board?.chat ?? [];
-  const state = [board, chat, chat.length, chatBusy, chatError];
+  const busy = !!board && chatBoard === board;
+  const state = [board, chat, chat.length, busy, !!chatBoard, chatError];
   if (state.every((value, i) => value === renderedChat[i])) return;
   renderedChat = state;
   const outputs = chat.filter((item) => item.type === "function_call_output");
@@ -493,13 +528,16 @@ function renderChat() {
     if (item.role === "user") nodes.push(el("div", { class: "msg user" }, item.content));
     else if (item.type === "message") nodes.push(el("div", { class: "msg assistant" }, assistant.messageText(item)));
     else if (item.type === "function_call") nodes.push(actionLine(item, results));
+    else if (item.type === "notice") nodes.push(el("div", { class: "msg notice" }, item.text));
   }
-  if (chatBusy) nodes.push(el("div", { class: "msg status" }, "Working..."));
+  if (busy) nodes.push(el("div", { class: "msg status" }, "Working..."));
   if (chatError) nodes.push(el("div", { class: "msg error" }, chatError));
   const list = $("chat-messages");
   list.replaceChildren(...nodes);
   list.scrollTop = list.scrollHeight;
-  for (const id of ["chat-send", "chat-input", "chat-clear", "chat-model"]) $(id).disabled = !board || chatBusy;
+  // The text box stays enabled so the next message can be written while the assistant works.
+  $("chat-input").disabled = !board;
+  for (const id of ["chat-send", "chat-clear", "chat-model"]) $(id).disabled = !board || !!chatBoard;
 }
 
 // Fills the model dropdown from the server; if that fails it stays hidden and the server's default is used.
@@ -533,7 +571,21 @@ $("chat-input").addEventListener("keydown", (event) => {
 
 // ---------- Rendering ----------
 
+function endpointExists({ card, property }) {
+  const found = findCard(card);
+  return !!found && (!property || found.properties.some((p) => p.id === property));
+}
+
 function render() {
+  // Rebuilding the cards would end a drag, so the board is redrawn when the drag ends.
+  if (dragging) {
+    renderPending = true;
+    renderToolbar();
+    renderChat();
+    return;
+  }
+  renderPending = false;
+  if (linkSource && !endpointExists(linkSource)) linkSource = null;
   runSearch();
   renderToolbar();
   renderCards();
@@ -545,8 +597,6 @@ function render() {
 
 function renderToolbar() {
   for (const button of document.querySelectorAll("[data-needs-board]")) button.disabled = !board;
-  // Replacing the board while the assistant works on it would mix up the two boards.
-  $("btn-create").disabled = $("btn-load").disabled = chatBusy;
   $("board-name").textContent = board ? board.name + (dirty ? " *" : "") : "";
   $("status").textContent = linkSource ? "Click a card or property to link to (Esc to cancel)" : "";
   $("empty-hint").hidden = !!board;
@@ -623,9 +673,10 @@ function boardRect(node) {
 function endpointRect(endpoint) {
   const cardEl = cardsLayer.querySelector(`.card[data-id="${CSS.escape(endpoint.card)}"]`);
   const node = endpoint.property
-    ? cardEl.querySelector(`.property[data-id="${CSS.escape(endpoint.property)}"]`)
+    ? cardEl?.querySelector(`.property[data-id="${CSS.escape(endpoint.property)}"]`)
     : cardEl;
-  return { rect: boardRect(node), isProperty: !!endpoint.property };
+  // Missing while a drag puts off drawing cards the assistant added.
+  return node && { rect: boardRect(node), isProperty: !!endpoint.property };
 }
 
 // Point where the line from the rect center towards (px, py) leaves the rect.
@@ -665,6 +716,7 @@ function renderLinks() {
   for (const link of board.links) {
     const a = endpointRect(link.source);
     const b = endpointRect(link.target);
+    if (!a || !b) continue;
     const p1 = anchor(a, b.rect.cx, b.rect.cy);
     const p2 = anchor(b, a.rect.cx, a.rect.cy);
     const markerId = `arrow-${link.id}`;

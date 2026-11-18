@@ -42,12 +42,12 @@ All whiteboard state lives in the browser. Saving and loading go through the bro
   - Properties: `addProperty(board, cardId, {tag, content})`, `editProperty(board, cardId, propertyId, {tag, content})` (either field may be left out), `moveProperty(board, cardId, propertyId, position)` (0 is the top), `deleteProperty(board, cardId, propertyId)`.
   - Links: `addLink(board, source, target, {color, style, direction})`, `updateLink(board, linkId, {color, style, direction})`, `deleteLink(board, linkId)`. An endpoint is `{card}` or `{card, property}`. A color is a name from `ops.COLORS` or `#rrggbb`. Deleting a card or property also deletes its links.
   - Search: `search(board, {mode, keyword, tag, content})` returns `{cards: [cardId], properties: [{card, property}]}`.
-- Assistant (`assistant.js`): one tool per operation (except creating, loading, pictures and chat), a system prompt with the current board (pictures left out), and `assistant.send(board, text, hooks)`, which calls `/api/chat` and runs tool calls until the model answers in text. A tool error is returned to the model as `{"error": ...}`. It does not touch the page; `hooks` let the user interface redraw, confirm deletes and place new cards.
+- Assistant (`assistant.js`): one tool per operation (except creating, loading, pictures and chat), a system prompt with the current board (pictures left out), and `assistant.send(board, text, hooks)`, which calls `/api/chat` and runs tool calls until the model answers in text. A tool error is returned to the model as `{"error": ...}`. Every tool except `search` changes the board and is blocked once `hooks.stale()` reports that the user changed the board during the turn. It does not touch the page; `hooks` let the user interface redraw, confirm deletes, place new cards and report user edits.
 - User interface (`app.js`): dialogs, file handling, dragging, zoom and rendering. Every user action makes its change through `ops` and then calls `render()`.
 - Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board content is at least 4000 x 3000 and grows to keep a margin past the farthest card.
 - Zoom: a CSS `transform: scale(zoom)` on the content element scales cards and links together. Pointer positions are divided by `zoom` to convert them to board coordinates.
 - Dragging: the card header is the drag handle. Pointer events update the card's `x` and `y`, and links are redrawn while the card moves.
-- Dialogs: one in-page `<dialog>`, styled like the cards, is used for all input, confirmations and error messages. `showDialog()` fills in a title, an optional message and labeled text fields, and returns a promise with the trimmed values, or `null` on Cancel. Enter confirms, Escape cancels, and blank fields are rejected. The browser's own prompt is used only for the leave-page warning.
+- Dialogs: one in-page `<dialog>`, styled like the cards, is used for all input, confirmations and error messages. A dialog requested while another is open waits until that one closes. `showDialog()` fills in a title, an optional message and labeled text fields, and returns a promise with the trimmed values, or `null` on Cancel. Enter confirms, Escape cancels, and blank fields are rejected. The browser's own prompt is used only for the leave-page warning.
 
 ## Data Model and File Format
 
@@ -84,7 +84,8 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
     { "type": "reasoning", "encrypted_content": "...", ... },
     { "type": "function_call", "call_id": "call_1", "name": "add_link", "arguments": "{...}", ... },
     { "type": "function_call_output", "call_id": "call_1", "output": "{...}" },
-    { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "Done." }], ... }
+    { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "Done." }], ... },
+    { "type": "notice", "text": "The whiteboard was changed while the assistant was working, ..." }
   ]
 }
 ```
@@ -94,7 +95,7 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 - A link endpoint is a card (`property: null`) or a property of a card.
 - `style` is `solid`, `dashed` or `dotted`.
 - `direction` is `forward` (source to target), `backward` (target to source) or `none`.
-- `chat` is the assistant's chat history as Responses API input items: user messages, and the model's output items (reasoning, messages, function calls) stored exactly as returned, followed by the result of each function call. Files without it load with an empty chat.
+- `chat` is the assistant's chat history as Responses API input items: user messages, and the model's output items (reasoning, messages, function calls) stored exactly as returned, followed by the result of each function call. A `notice` item marks a turn whose changes were blocked; it is shown in the chat but not sent to the model. Files without `chat` load with an empty chat.
 - IDs are unique strings generated by the frontend and are only used for references inside the file.
 
 ## Behavior
@@ -152,7 +153,9 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 
 - The chat panel is always in the bottom right corner of the whiteboard. Its button minimizes it to its header and restores it. Without an open board its controls are disabled.
 - A dropdown in the panel header chooses the model, starting with the default. The choice applies to the next message and is not saved in the file.
-- Enter sends a message and Shift+Enter starts a new line. While the assistant works, the text box, Create and Load are disabled.
+- Enter sends a message and Shift+Enter starts a new line. Each request to the model includes a snapshot of the current whiteboard (JSON, pictures left out).
+- The request runs in the background and the user can keep working, including Create and Load. Only Send, Clear and the model choice are disabled until the assistant answers. A card drag is not interrupted; the assistant's changes are drawn when it ends.
+- If the user changes the whiteboard (or opens another one) while the assistant works, the assistant can still search and answer, but its remaining changes in that turn are blocked. Changes it made before stay. Blocked actions are marked in the chat, and a yellow notice says the changes were blocked.
 - The assistant can rename the whiteboard; add, rename, move and delete cards; add, edit, reorder and delete properties; add, restyle and delete links; and search. It cannot see or change pictures.
 - Each delete it attempts opens a confirmation dialog. A declined delete is reported back to the assistant.
 - The chat shows the user's messages, the assistant's replies, and a short gray line for each action, red when the action failed. Errors such as a missing API key are shown in red at the end.

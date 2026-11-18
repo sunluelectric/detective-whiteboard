@@ -212,5 +212,6 @@ body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e
 .msg.action { align-self: flex-start; padding: 0 8px; color: #777; font-size: 12px; }
 .msg.action.failed, .msg.error { color: #c62828; }
 .msg.status { align-self: flex-start; color: #777; font-style: italic; }
+.msg.notice { align-self: stretch; max-width: none; background: #fff3cd; border: 1px solid #e6c96b; color: #6b5200; font-size: 12px; }
 #chat-form { display: flex; gap: 6px; padding: 6px; border-top: 1px solid #e3e0d6; }
 #chat-input { flex: 1; font: inherit; resize: none; padding: 4px 6px; border: 1px solid #aaa; border-radius: 3px; }

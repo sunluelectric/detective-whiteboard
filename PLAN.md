@@ -126,3 +126,14 @@ The assistant is an OpenAI model with the board operations as tools. The board l
 - [x] `assistant.js`: tools in Responses format; the system prompt goes in `instructions`; `board.chat` holds Responses items (user messages, reasoning, assistant messages, function calls and their outputs), with output items stored exactly as returned so reasoning carries over between steps.
 - [x] Chat panel reads the new item types; reasoning items are not shown.
 - [x] Re-run the stubbed tool loop and server tests; update `README.md`.
+
+## Phase 16: Working alongside the assistant
+
+The user keeps working while the assistant waits for the model. Each request already sends a snapshot of the current whiteboard (JSON, pictures left out) in the instructions.
+
+- [x] `app.js` counts user edits (every UI change through `ops`, a card drag, Create and Load). `assistant.send` gets a `stale()` hook that is true once the count changed or the board was replaced since the message was sent.
+- [x] When stale, write tools (everything except `search`) return a "blocked" error to the model without changing the board, so the model can still answer. The turn ends with a notice item in `board.chat`, shown in the chat and left out of requests to the model.
+- [x] Create and Load stay enabled while the assistant works; the chat input is disabled until the turn ends. Output of a turn for a replaced board does not touch the new board.
+- [x] Concurrency safety: dialogs queue instead of overwriting an open one; a render during a card drag is deferred to the drag's end; link mode ends when its source is deleted; errors from UI actions on deleted items are shown in a dialog.
+- [x] Check the tool loop with a stubbed model in Node, and the UI in headless Chrome.
+- [x] Update `README.md`.

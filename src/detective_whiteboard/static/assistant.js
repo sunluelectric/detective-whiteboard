@@ -33,8 +33,16 @@ const assistant = (() => {
   const endpointLabel = (board, { card, property }) =>
     property ? propertyLabel(board, card, property) : `card "${ops.getCard(board, card).name}"`;
 
+  const BLOCKED =
+    "Blocked: the user changed the whiteboard while you were working, so you cannot change it until the user " +
+    "sends a new message. Do not retry. Answer from the current whiteboard and say which changes you did not make.";
+  const NOTICE =
+    "The whiteboard was changed while the assistant was working, so its changes were blocked. Send the request " +
+    "again to retry.";
+
   // run(board, args, hooks) makes the change and returns what the model sees.
   // confirm(board, args) returns the question shown to the user before a delete.
+  // readOnly tools still run after the user changed the whiteboard during a turn; all others are blocked.
   const TOOLS = {
     rename_whiteboard: {
       description: "Rename the whiteboard.",
@@ -137,6 +145,7 @@ const assistant = (() => {
         content: string("For property mode; leave out to match every property with the tag"),
       },
       required: ["mode"],
+      readOnly: true,
       run: (board, a) => ops.search(board, a),
     },
   };
@@ -187,7 +196,12 @@ const assistant = (() => {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, instructions: systemPrompt(board), input: board.chat, tools: TOOL_SCHEMAS }),
+      body: JSON.stringify({
+        model,
+        instructions: systemPrompt(board),
+        input: board.chat.filter((item) => item.type !== "notice"),
+        tools: TOOL_SCHEMAS,
+      }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message ?? `Request failed with status ${response.status}`);
@@ -201,9 +215,13 @@ const assistant = (() => {
       if (!tool) throw new Error(`Unknown tool ${call.name}`);
       // Models sometimes send null for optional arguments; treat that as left out.
       const args = JSON.parse(call.arguments || "{}", (key, value) => (value === null ? undefined : value));
+      const blocked = () => !tool.readOnly && hooks.stale();
+      if (blocked()) return { error: BLOCKED, blocked: true };
       if (tool.confirm && !(await hooks.confirm(tool.confirm(board, args)))) {
         return { error: "The user declined this change." };
       }
+      // The user may have changed the whiteboard while the confirmation waited behind their own dialog.
+      if (blocked()) return { error: BLOCKED, blocked: true };
       return tool.run(board, args, hooks) ?? { ok: true };
     } catch (err) {
       return { error: err.message };
@@ -213,25 +231,36 @@ const assistant = (() => {
   // Sends the user's text and runs tools until the model answers without calling one.
   // Output items (reasoning, messages, function calls) are stored exactly as returned, because the
   // model needs its encrypted reasoning back in the next request.
+  // If the user changes the whiteboard during the turn, the remaining changes are blocked and the turn
+  // ends with a notice item, which is shown in the chat but not sent to the model.
   // hooks: onUpdate() after every change to the board or chat, confirm(question) resolving to
-  // true or false, cardPosition() returning { x, y } for a new card, and model (empty for the
-  // server's default).
+  // true or false, cardPosition() returning { x, y } for a new card, stale() returning true once the
+  // user changed the whiteboard since the message was sent, and model (empty for the server's default).
   async function send(board, text, hooks) {
     board.chat.push({ role: "user", content: text });
     hooks.onUpdate();
-    for (let step = 0; step < MAX_STEPS; step++) {
-      const output = await complete(board, hooks.model);
-      board.chat.push(...output);
-      hooks.onUpdate();
-      const calls = output.filter((item) => item.type === "function_call");
-      if (!calls.length) return;
-      for (const call of calls) {
-        const result = await runTool(board, call, hooks);
-        board.chat.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(result) });
+    let blocked = false;
+    try {
+      for (let step = 0; step < MAX_STEPS; step++) {
+        const output = await complete(board, hooks.model);
+        board.chat.push(...output);
+        hooks.onUpdate();
+        const calls = output.filter((item) => item.type === "function_call");
+        if (!calls.length) return;
+        for (const call of calls) {
+          const result = await runTool(board, call, hooks);
+          blocked ||= !!result.blocked;
+          board.chat.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(result) });
+          hooks.onUpdate();
+        }
+      }
+      throw new Error(`The assistant stopped after ${MAX_STEPS} steps.`);
+    } finally {
+      if (blocked) {
+        board.chat.push({ type: "notice", text: NOTICE });
         hooks.onUpdate();
       }
     }
-    throw new Error(`The assistant stopped after ${MAX_STEPS} steps.`);
   }
 
   // The visible text of an assistant message item.
