@@ -1,0 +1,40 @@
+# Plan
+
+Development phases for the first version. The design is in `README.md`. Each phase ends with a manual check in the browser (`uv run detective-whiteboard`).
+
+## Tooling
+
+- No third-party dependencies. Backend uses the standard library; frontend is plain HTML, CSS and JavaScript.
+- Testing is manual in the browser, plus `node --check src/detective_whiteboard/static/app.js` as a syntax check when Node is available. No test framework for now.
+
+## Phase 1: Server and page skeleton
+
+- [x] `main()` serves `static/` on `localhost` (free port) with `http.server` and opens the browser.
+- [x] `index.html` with toolbar (Create, Load, Save, Rename, Create Card, zoom out / reset / in) and board viewport.
+- [x] `board` state, `render()`, buttons disabled until a board is open.
+- [x] Create, Rename, Save (`showSaveFilePicker` or download), Load (file dialog), unsaved-changes confirmation.
+- [x] Zoom buttons and Ctrl + wheel, 25% to 200%.
+
+## Phase 2: Cards
+
+- [x] Create card in the visible area, rename, delete (with attached links).
+- [x] Drag by header, with zoom-aware coordinates.
+- [x] Update picture: PNG/JPG, scaled on a canvas to card width, stored as data URL.
+
+## Phase 3: Properties
+
+- [x] Add (tag and content), edit (keeps ID), delete (with attached links).
+- [x] Up and down buttons swap neighbors.
+
+## Phase 4: Links
+
+- [x] Link mode from card or property link buttons, target click creates link, Escape or own card cancels.
+- [x] SVG layer with arrow markers, card border anchors, property row side anchors, wide hit line.
+- [x] Selection panel: color, style, direction, delete. Click on empty board deselects.
+
+## Phase 5: Polish
+
+- [x] Update `CLAUDE.md` "Current State and Commands".
+- [x] End-to-end check in headless Chrome: create, cards, pictures, properties, reorder, links, link editing, zoom, load round trip, card deletion.
+- [x] Simulated mouse input in headless Chrome: dragging at 100% and 50% zoom, Ctrl + wheel zoom, link selection and deselection.
+- [ ] Check the save dialog by hand in a real browser (it needs a user gesture).

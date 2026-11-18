@@ -8,13 +8,18 @@ A browser-based whiteboard for organizing a case: cards with pictures and proper
 uv run detective-whiteboard
 ```
 
-This starts a local web server and opens the whiteboard in the default browser.
+This starts a local web server on `http://127.0.0.1:8000/` and opens the whiteboard in the default browser.
+
+Options:
+
+- `--port N` sets the port (default 8000).
+- `--host 0.0.0.0` allows access from other machines on the LAN at `http://<server IP>:<port>/`. The port may need to be opened in the firewall (for example `sudo firewall-cmd --add-port=8000/tcp`). There is no authentication. Browsers only offer the save dialog on `localhost` or HTTPS, so on a LAN address Save downloads the file instead.
 
 ## Architecture
 
 The application is a single-page web app served by a minimal Python server.
 
-- Backend: `src/detective_whiteboard/__init__.py`. `main()` serves the `static/` directory on `localhost` using the standard library `http.server` and opens the browser. It has no other duties and no third-party dependencies.
+- Backend: `src/detective_whiteboard/__init__.py`. `main()` serves the `static/` directory (on `127.0.0.1` by default) using the standard library `http.server` and opens the browser. It has no other duties and no third-party dependencies.
 - Frontend: `src/detective_whiteboard/static/` with `index.html`, `style.css` and `app.js`. Plain HTML, CSS and JavaScript, with no framework or build step.
 
 All whiteboard state lives in the browser. Saving and loading go through the browser's file dialogs, so the server never touches whiteboard files. A future database backend would add API endpoints to the server without changing the data model.
