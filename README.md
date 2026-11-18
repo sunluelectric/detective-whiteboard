@@ -20,13 +20,20 @@ Options:
 The application is a single-page web app served by a minimal Python server.
 
 - Backend: `src/detective_whiteboard/__init__.py`. `main()` serves the `static/` directory (on `127.0.0.1` by default) using the standard library `http.server` and opens the browser. It has no other duties and no third-party dependencies.
-- Frontend: `src/detective_whiteboard/static/` with `index.html`, `style.css` and `app.js`. Plain HTML, CSS and JavaScript, with no framework or build step.
+- Frontend: `src/detective_whiteboard/static/` with `index.html`, `style.css`, `ops.js` and `app.js`. Plain HTML, CSS and JavaScript, with no framework or build step.
 
 All whiteboard state lives in the browser. Saving and loading go through the browser's file dialogs, so the server never touches whiteboard files. A future database backend would add API endpoints to the server without changing the data model.
 
 ### Frontend structure
 
-- State: one `board` object that matches the JSON file format below. Every user action changes `board` and then calls `render()`.
+- State: one `board` object that matches the JSON file format below.
+- Operations (`ops.js`): every change to a board is a function of the `ops` object, so the user interface and a future AI assistant share the same code. The functions only change the board data and never touch the page. They take the board and JSON-friendly arguments, refer to cards, properties and links by ID, and return the new card, property or link where there is one. Bad input (unknown ID, blank text, invalid color, style or direction, a link within one card) throws an `Error` with a readable message.
+  - Whiteboard: `newBoard(name)`, `loadBoard(data)`, `renameBoard(board, name)`.
+  - Cards: `addCard(board, {name, x, y})`, `renameCard(board, cardId, name)`, `moveCard(board, cardId, x, y)`, `setCardPicture(board, cardId, dataUrl)`, `deleteCard(board, cardId)`.
+  - Properties: `addProperty(board, cardId, {tag, content})`, `editProperty(board, cardId, propertyId, {tag, content})` (either field may be left out), `moveProperty(board, cardId, propertyId, position)` (0 is the top), `deleteProperty(board, cardId, propertyId)`.
+  - Links: `addLink(board, source, target, {color, style, direction})`, `updateLink(board, linkId, {color, style, direction})`, `deleteLink(board, linkId)`. An endpoint is `{card}` or `{card, property}`. A color is a name from `ops.COLORS` or `#rrggbb`. Deleting a card or property also deletes its links.
+  - Search: `search(board, {mode, keyword, tag, content})` returns `{cards: [cardId], properties: [{card, property}]}`.
+- User interface (`app.js`): dialogs, file handling, dragging, zoom and rendering. Every user action makes its change through `ops` and then calls `render()`.
 - Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board content is at least 4000 x 3000 and grows to keep a margin past the farthest card.
 - Zoom: a CSS `transform: scale(zoom)` on the content element scales cards and links together. Pointer positions are divided by `zoom` to convert them to board coordinates.
 - Dragging: the card header is the drag handle. Pointer events update the card's `x` and `y`, and links are redrawn while the card moves.

@@ -6,15 +6,6 @@ const ZOOM_MAX = 2;
 const BOARD_MIN_WIDTH = 4000;
 const BOARD_MIN_HEIGHT = 3000;
 const BOARD_MARGIN = 400;
-const COLORS = {
-  black: "#000000",
-  red: "#d32f2f",
-  blue: "#1e6fd9",
-  green: "#2e7d32",
-  orange: "#ef6c00",
-  purple: "#7b1fa2",
-  gray: "#757575",
-};
 const DASHES = { solid: "", dashed: "8 5", dotted: "2 4" };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -24,20 +15,15 @@ let zoom = 1;
 let linkSource = null; // { card, property }
 let selectedLinkId = null;
 let pictureCardId = null;
-let searchMode = "global"; // "global", "card" or "property"
-let searchActive = false;
-let cardMatches = () => false;
-let propertyMatches = () => false;
+let searchMode = "global"; // one of ops.SEARCH_MODES
+let searchQuery = null; // argument for ops.search, or null when the search fields are empty
+let found = null; // { cards: Set, properties: Set } of IDs from the last search
 
 const $ = (id) => document.getElementById(id);
 const viewport = $("viewport");
 const content = $("content");
 const cardsLayer = $("cards");
 const linksLayer = $("links");
-
-function uid(prefix) {
-  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
 
 function findCard(id) {
   return board.cards.find((c) => c.id === id);
@@ -107,18 +93,9 @@ async function confirmDiscard() {
   return !board || !dirty || askConfirm("Unsaved changes", "The current whiteboard has unsaved changes. Discard them?", "Discard");
 }
 
-// The data is checked and cleaned before it replaces the current board, so a bad file leaves it untouched.
-function openBoard(data) {
-  if (typeof data.name !== "string" || !Array.isArray(data.cards) || !Array.isArray(data.links)) {
-    throw new Error("not a whiteboard file");
-  }
-  // Links whose endpoints are missing cannot be drawn, so they are dropped.
-  const exists = (endpoint) => {
-    const card = data.cards.find((c) => c.id === endpoint.card);
-    return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));
-  };
-  data.links = data.links.filter((l) => exists(l.source) && exists(l.target));
-  board = data;
+// newBoard is checked before it replaces the current board, so bad data leaves the open board untouched.
+function openBoard(newBoard) {
+  board = newBoard;
   dirty = false;
   selectedLinkId = null;
   linkSource = null;
@@ -131,13 +108,13 @@ async function createBoard() {
   if (!(await confirmDiscard())) return;
   const name = await askText("New whiteboard", "Name");
   if (!name) return;
-  openBoard({ version: 1, name, cards: [], links: [] });
+  openBoard(ops.newBoard(name));
 }
 
 async function renameBoard() {
   const name = await askText("Rename whiteboard", "Name", board.name);
   if (!name || name === board.name) return;
-  board.name = name;
+  ops.renameBoard(board, name);
   changed();
 }
 
@@ -177,7 +154,7 @@ $("file-load").addEventListener("change", async (event) => {
   event.target.value = "";
   if (!file) return;
   try {
-    openBoard(JSON.parse(await file.text()));
+    openBoard(ops.loadBoard(JSON.parse(await file.text())));
   } catch (err) {
     showMessage("Load failed", `Could not load ${file.name}: ${err.message}`);
   }
@@ -215,13 +192,10 @@ async function addCard() {
   const name = await askText("New card", "Name");
   if (!name) return;
   const offset = (board.cards.length % 8) * 24;
-  board.cards.push({
-    id: uid("c"),
+  ops.addCard(board, {
     name,
-    x: Math.round(viewport.scrollLeft / zoom + 40 + offset),
-    y: Math.round(viewport.scrollTop / zoom + 40 + offset),
-    picture: null,
-    properties: [],
+    x: viewport.scrollLeft / zoom + 40 + offset,
+    y: viewport.scrollTop / zoom + 40 + offset,
   });
   changed();
 }
@@ -229,14 +203,13 @@ async function addCard() {
 async function renameCard(card) {
   const name = await askText("Rename card", "Name", card.name);
   if (!name || name === card.name) return;
-  card.name = name;
+  ops.renameCard(board, card.id, name);
   changed();
 }
 
 async function deleteCard(card) {
   if (!(await askConfirm("Delete card", `Delete card "${card.name}" and its links?`, "Delete"))) return;
-  board.cards = board.cards.filter((c) => c !== card);
-  board.links = board.links.filter((l) => l.source.card !== card.id && l.target.card !== card.id);
+  ops.deleteCard(board, card.id);
   changed();
 }
 
@@ -265,7 +238,8 @@ $("file-picture").addEventListener("change", async (event) => {
   canvas.width = Math.round(img.naturalWidth * scale);
   canvas.height = Math.round(img.naturalHeight * scale);
   canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-  card.picture = file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.85);
+  const picture = file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.85);
+  ops.setCardPicture(board, card.id, picture);
   changed();
 });
 
@@ -279,8 +253,7 @@ function startDrag(event, card, cardEl) {
   const origY = card.y;
   header.setPointerCapture(event.pointerId);
   const move = (e) => {
-    card.x = Math.max(0, Math.round(origX + (e.clientX - startX) / zoom));
-    card.y = Math.max(0, Math.round(origY + (e.clientY - startY) / zoom));
+    ops.moveCard(board, card.id, origX + (e.clientX - startX) / zoom, origY + (e.clientY - startY) / zoom);
     cardEl.style.left = `${card.x}px`;
     cardEl.style.top = `${card.y}px`;
     renderLinks();
@@ -315,29 +288,26 @@ async function askProperty(title, tag = "", content = "") {
 async function addProperty(card) {
   const values = await askProperty("New property");
   if (!values) return;
-  card.properties.push({ id: uid("p"), ...values });
+  ops.addProperty(board, card.id, values);
   changed();
 }
 
-async function editProperty(prop) {
+async function editProperty(card, prop) {
   const values = await askProperty("Edit property", prop.tag, prop.content);
   if (!values) return;
-  Object.assign(prop, values);
+  ops.editProperty(board, card.id, prop.id, values);
   changed();
 }
 
 async function deleteProperty(card, prop) {
   if (!(await askConfirm("Delete property", `Delete property "${prop.tag}" and its links?`, "Delete"))) return;
-  card.properties = card.properties.filter((p) => p !== prop);
-  board.links = board.links.filter((l) => l.source.property !== prop.id && l.target.property !== prop.id);
+  ops.deleteProperty(board, card.id, prop.id);
   changed();
 }
 
-function moveProperty(card, index, delta) {
-  const other = index + delta;
-  if (other < 0 || other >= card.properties.length) return;
-  const props = card.properties;
-  [props[index], props[other]] = [props[other], props[index]];
+function moveProperty(card, prop, index, delta) {
+  if (index + delta < 0 || index + delta >= card.properties.length) return;
+  ops.moveProperty(board, card.id, prop.id, index + delta);
   changed();
 }
 
@@ -362,7 +332,7 @@ function finishLink(target) {
     render();
     return;
   }
-  board.links.push({ id: uid("l"), source, target, color: COLORS.black, style: "solid", direction: "forward" });
+  ops.addLink(board, source, target);
   changed();
 }
 
@@ -392,7 +362,7 @@ function selectedLink() {
 }
 
 function updateLink(changes) {
-  Object.assign(selectedLink(), changes);
+  ops.updateLink(board, selectedLinkId, changes);
   changed();
 }
 
@@ -414,41 +384,29 @@ window.addEventListener("beforeunload", (event) => {
 
 // ---------- Search ----------
 
-// "*" matches any run of characters and "?" one character; everything else is literal.
-function wildcardRegExp(text) {
-  const source = [...text]
-    .map((ch) => (ch === "*" ? ".*" : ch === "?" ? "." : ch.replace(/[.+^${}()|[\]\\]/g, "\\$&")))
-    .join("");
-  return new RegExp(source, "i");
-}
-
-// Rebuilds cardMatches and propertyMatches from the current tab and fields.
+// Builds the search query from the current tab and fields.
 function updateSearch() {
-  cardMatches = propertyMatches = () => false;
-  if (searchMode === "property") {
-    const tag = $("search-tag").value.trim().toLowerCase();
-    const content = wildcardRegExp($("search-content").value.trim());
-    searchActive = !!tag;
-    if (searchActive) propertyMatches = (p) => p.tag.toLowerCase() === tag && content.test(p.content);
-  } else {
-    const text = $("search-input").value.trim();
-    searchActive = !!text;
-    if (searchActive) {
-      const pattern = wildcardRegExp(text);
-      cardMatches = (c) => pattern.test(c.name);
-      if (searchMode === "global") propertyMatches = (p) => pattern.test(`${p.tag}: ${p.content}`);
-    }
-  }
+  const keyword = $("search-input").value.trim();
+  const tag = $("search-tag").value.trim();
+  const content = $("search-content").value.trim();
+  const active = searchMode === "property" ? tag : keyword;
+  searchQuery = active ? { mode: searchMode, keyword, tag, content } : null;
   render();
 }
 
-function renderSearchCount() {
-  let count = 0;
-  if (board && searchActive) {
-    for (const card of board.cards) count += cardMatches(card) + card.properties.filter(propertyMatches).length;
+// Runs the search on the current board, so highlights follow every change.
+function runSearch() {
+  if (!board || !searchQuery) {
+    found = null;
+    return;
   }
-  $("search-count").textContent =
-    !board || !searchActive ? "" : count === 0 ? "No matches" : `${count} match${count === 1 ? "" : "es"}`;
+  const result = ops.search(board, searchQuery);
+  found = { cards: new Set(result.cards), properties: new Set(result.properties.map((p) => p.property)) };
+}
+
+function renderSearchCount() {
+  const count = found ? found.cards.size + found.properties.size : 0;
+  $("search-count").textContent = !found ? "" : count === 0 ? "No matches" : `${count} match${count === 1 ? "" : "es"}`;
 }
 
 for (const id of ["search-input", "search-tag", "search-content"]) $(id).addEventListener("input", updateSearch);
@@ -476,6 +434,7 @@ $("search-toggle").addEventListener("click", () => {
 // ---------- Rendering ----------
 
 function render() {
+  runSearch();
   renderToolbar();
   renderCards();
   renderLinks();
@@ -501,7 +460,7 @@ function renderCard(card) {
   const isSource = linkSource && linkSource.card === card.id;
   const cardEl = el("div", { class: "card", "data-id": card.id });
   if (isSource && !linkSource.property) cardEl.classList.add("link-source");
-  if (cardMatches(card)) cardEl.classList.add("highlight");
+  if (found?.cards.has(card.id)) cardEl.classList.add("highlight");
   cardEl.style.left = `${card.x}px`;
   cardEl.style.top = `${card.y}px`;
   cardEl.style.width = `${CARD_WIDTH}px`;
@@ -531,14 +490,14 @@ function renderCard(card) {
       "li",
       { class: "property", "data-id": prop.id },
       el("span", { class: "property-text" }, el("b", {}, `${prop.tag}:`), ` ${prop.content}`),
-      iconButton("↑", "Move up", () => moveProperty(card, index, -1)),
-      iconButton("↓", "Move down", () => moveProperty(card, index, 1)),
-      iconButton("✎", "Edit property", () => editProperty(prop)),
+      iconButton("↑", "Move up", () => moveProperty(card, prop, index, -1)),
+      iconButton("↓", "Move down", () => moveProperty(card, prop, index, 1)),
+      iconButton("✎", "Edit property", () => editProperty(card, prop)),
       iconButton("⤳", "Add link", () => startLink(card.id, prop.id)),
       iconButton("×", "Delete property", () => deleteProperty(card, prop)),
     );
     if (isSource && linkSource.property === prop.id) row.classList.add("link-source");
-    if (propertyMatches(prop)) row.classList.add("highlight");
+    if (found?.properties.has(prop.id)) row.classList.add("highlight");
     list.append(row);
   });
 
@@ -639,7 +598,7 @@ function renderLinkPanel() {
   const link = selectedLink();
   $("link-panel").hidden = !link;
   if (!link) return;
-  const swatches = Object.entries(COLORS).map(([name, value]) => {
+  const swatches = Object.entries(ops.COLORS).map(([name, value]) => {
     const swatch = el("button", {
       class: "swatch" + (link.color === value ? " active" : ""),
       title: name,
@@ -656,7 +615,7 @@ function renderLinkPanel() {
 $("link-style").addEventListener("change", (e) => updateLink({ style: e.target.value }));
 $("link-direction").addEventListener("change", (e) => updateLink({ direction: e.target.value }));
 $("link-delete").addEventListener("click", () => {
-  board.links = board.links.filter((l) => l.id !== selectedLinkId);
+  ops.deleteLink(board, selectedLinkId);
   selectedLinkId = null;
   changed();
 });

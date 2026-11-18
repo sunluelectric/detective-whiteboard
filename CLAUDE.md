@@ -10,10 +10,10 @@ This project is jointly developed by human developer and vibe coding agent.
 
 ## Current State and Commands
 
-- First version implemented as described in `README.md`: `src/detective_whiteboard/__init__.py` (stdlib static server) and `src/detective_whiteboard/static/` (`index.html`, `style.css`, `app.js`). Progress is tracked in `PLAN.md`.
+- First version implemented as described in `README.md`: `src/detective_whiteboard/__init__.py` (stdlib static server) and `src/detective_whiteboard/static/` (`index.html`, `style.css`, `ops.js` for all board operations, `app.js` for the user interface). Progress is tracked in `PLAN.md`.
 - Run the app: `uv run detective-whiteboard` (options `--host`, `--port`; `--host 0.0.0.0` for LAN access)
 - Add a dependency: `uv add <package>` (dev-only: `uv add --dev <package>`)
-- No test framework or linter. Check JavaScript syntax with `node --check src/detective_whiteboard/static/app.js` and test manually in the browser.
+- No test framework or linter. Check JavaScript syntax with `node --check` on `ops.js` and `app.js` in `src/detective_whiteboard/static/`, and test manually in the browser.
 
 ## Brief Introduction
 

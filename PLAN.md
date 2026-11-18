@@ -77,3 +77,17 @@ Development phases for the first version. The design is in `README.md`. Each pha
 - [x] Card: card names only.
 - [x] Property: properties whose tag equals the Tag field (case-insensitive, no wildcards) and whose content matches the Content field (wildcards, anywhere in the text). An empty Content field matches every property with that tag; an empty Tag field matches nothing.
 - [x] Update `README.md`.
+
+## Phase 11: Operations layer
+
+Prepare for an AI assistant whose tools call the same operations as the user interface.
+
+- [x] New `static/ops.js` with one `ops` object of plain functions on a board object. No DOM access, JSON-friendly arguments and results, cards, properties and links referenced by ID. Bad input (unknown ID, blank text, invalid color, style or direction, link within one card) throws an `Error` with a readable message.
+  - Whiteboard: `newBoard`, `loadBoard`, `renameBoard`.
+  - Cards: `addCard`, `renameCard`, `moveCard`, `setCardPicture`, `deleteCard`.
+  - Properties: `addProperty`, `editProperty`, `moveProperty`, `deleteProperty`.
+  - Links: `addLink`, `updateLink`, `deleteLink`.
+  - Search: `search` (global, card and property modes).
+- [x] `app.js` keeps dialogs, file handling, dragging, zoom and rendering, and makes every change through `ops`.
+- [x] Check the operations with a short Node script and the UI in headless Chrome.
+- [x] Update `README.md` and `CLAUDE.md`.
