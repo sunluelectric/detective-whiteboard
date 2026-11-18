@@ -10,19 +10,28 @@ uv run detective-whiteboard
 
 This starts a local web server on `http://127.0.0.1:8000/` and opens the whiteboard in the default browser.
 
+The AI assistant needs an OpenAI API key in a `.env` file in the project folder (ignored by git):
+
+```
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-6-luna
+```
+
+The chat panel offers `gpt-6-luna` and `gpt-6.2-astra` (`MODELS` in `__init__.py`). `OPENAI_MODEL` is optional and sets the default model, `gpt-6-luna` if unset; a model not in the list is added to it. `MODELS` also sets the reasoning effort sent with each model: `none` for `gpt-6-luna`, and nothing for `gpt-6.2-astra`, which then uses its own default (it does not accept `none`). A model added through `OPENAI_MODEL` gets no reasoning effort. Without a key the rest of the app works and the assistant reports the missing key.
+
 Options:
 
 - `--port N` sets the port (default 8000).
-- `--host 0.0.0.0` allows access from other machines on the LAN at `http://<server IP>:<port>/`. The port may need to be opened in the firewall (for example `sudo firewall-cmd --add-port=8000/tcp`). There is no authentication. Browsers only offer the save dialog on `localhost` or HTTPS, so on a LAN address Save downloads the file instead.
+- `--host 0.0.0.0` allows access from other machines on the LAN at `http://<server IP>:<port>/`. The port may need to be opened in the firewall (for example `sudo firewall-cmd --add-port=8000/tcp`). There is no authentication, and anyone who can reach the server can use the assistant with your API key. Browsers only offer the save dialog on `localhost` or HTTPS, so on a LAN address Save downloads the file instead.
 
 ## Architecture
 
 The application is a single-page web app served by a minimal Python server.
 
-- Backend: `src/detective_whiteboard/__init__.py`. `main()` serves the `static/` directory (on `127.0.0.1` by default) using the standard library `http.server` and opens the browser. It has no other duties and no third-party dependencies.
-- Frontend: `src/detective_whiteboard/static/` with `index.html`, `style.css`, `ops.js` and `app.js`. Plain HTML, CSS and JavaScript, with no framework or build step.
+- Backend: `src/detective_whiteboard/__init__.py`. `main()` loads `.env` (`python-dotenv`), serves the `static/` directory (on `127.0.0.1` by default) using the standard library `http.server` and opens the browser. `GET /api/models` returns the selectable models and the default. `POST /api/chat` forwards `instructions`, `input` and `tools` to the OpenAI Responses API with the API key added, using the requested `model` (which must be in the list) or the default, so the key never reaches the browser. It sets `store: false`, so nothing is kept at OpenAI, and asks for encrypted reasoning, which the browser sends back with the next request. Errors come back as `{"error": {"message": ...}}`.
+- Frontend: `src/detective_whiteboard/static/` with `index.html`, `style.css`, `ops.js`, `assistant.js` and `app.js`. Plain HTML, CSS and JavaScript, with no framework or build step.
 
-All whiteboard state lives in the browser. Saving and loading go through the browser's file dialogs, so the server never touches whiteboard files. A future database backend would add API endpoints to the server without changing the data model.
+All whiteboard state lives in the browser. Saving and loading go through the browser's file dialogs, so the server never touches whiteboard files. For the same reason the browser runs the assistant's chat loop and its tools. A future database backend would add API endpoints to the server without changing the data model.
 
 ### Frontend structure
 
@@ -33,6 +42,7 @@ All whiteboard state lives in the browser. Saving and loading go through the bro
   - Properties: `addProperty(board, cardId, {tag, content})`, `editProperty(board, cardId, propertyId, {tag, content})` (either field may be left out), `moveProperty(board, cardId, propertyId, position)` (0 is the top), `deleteProperty(board, cardId, propertyId)`.
   - Links: `addLink(board, source, target, {color, style, direction})`, `updateLink(board, linkId, {color, style, direction})`, `deleteLink(board, linkId)`. An endpoint is `{card}` or `{card, property}`. A color is a name from `ops.COLORS` or `#rrggbb`. Deleting a card or property also deletes its links.
   - Search: `search(board, {mode, keyword, tag, content})` returns `{cards: [cardId], properties: [{card, property}]}`.
+- Assistant (`assistant.js`): one tool per operation (except creating, loading, pictures and chat), a system prompt with the current board (pictures left out), and `assistant.send(board, text, hooks)`, which calls `/api/chat` and runs tool calls until the model answers in text. A tool error is returned to the model as `{"error": ...}`. It does not touch the page; `hooks` let the user interface redraw, confirm deletes and place new cards.
 - User interface (`app.js`): dialogs, file handling, dragging, zoom and rendering. Every user action makes its change through `ops` and then calls `render()`.
 - Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board content is at least 4000 x 3000 and grows to keep a margin past the farthest card.
 - Zoom: a CSS `transform: scale(zoom)` on the content element scales cards and links together. Pointer positions are divided by `zoom` to convert them to board coordinates.
@@ -68,6 +78,13 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
       "style": "solid",
       "direction": "forward"
     }
+  ],
+  "chat": [
+    { "role": "user", "content": "Link Suspect A to Suspect B" },
+    { "type": "reasoning", "encrypted_content": "...", ... },
+    { "type": "function_call", "call_id": "call_1", "name": "add_link", "arguments": "{...}", ... },
+    { "type": "function_call_output", "call_id": "call_1", "output": "{...}" },
+    { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "Done." }], ... }
   ]
 }
 ```
@@ -77,6 +94,7 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 - A link endpoint is a card (`property: null`) or a property of a card.
 - `style` is `solid`, `dashed` or `dotted`.
 - `direction` is `forward` (source to target), `backward` (target to source) or `none`.
+- `chat` is the assistant's chat history as Responses API input items: user messages, and the model's output items (reasoning, messages, function calls) stored exactly as returned, followed by the result of each function call. Files without it load with an empty chat.
 - IDs are unique strings generated by the frontend and are only used for references inside the file.
 
 ## Behavior
@@ -129,6 +147,16 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
   - Property: a Tag field and a Content field. A property matches when its tag equals the Tag field, ignoring case and without wildcards, and its content matches the Content field with wildcards. An empty Content field matches every property with that tag. Nothing is highlighted until a tag is entered.
 - Matching cards and properties are highlighted in light yellow. A matching property inside a matching card uses a stronger yellow. The number of matches is shown next to the tabs, also while the box is minimized.
 - Highlights update as the board changes. The search is a view setting and is not saved in the file.
+
+### Assistant
+
+- The chat panel is always in the bottom right corner of the whiteboard. Its button minimizes it to its header and restores it. Without an open board its controls are disabled.
+- A dropdown in the panel header chooses the model, starting with the default. The choice applies to the next message and is not saved in the file.
+- Enter sends a message and Shift+Enter starts a new line. While the assistant works, the text box, Create and Load are disabled.
+- The assistant can rename the whiteboard; add, rename, move and delete cards; add, edit, reorder and delete properties; add, restyle and delete links; and search. It cannot see or change pictures.
+- Each delete it attempts opens a confirmation dialog. A declined delete is reported back to the assistant.
+- The chat shows the user's messages, the assistant's replies, and a short gray line for each action, red when the action failed. Errors such as a missing API key are shown in red at the end.
+- The chat is saved with the whiteboard, and every message marks the board as unsaved. Clear deletes the chat history after a confirmation.
 
 ## Out of Scope for the First Version
 

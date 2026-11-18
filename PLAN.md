@@ -91,3 +91,38 @@ Prepare for an AI assistant whose tools call the same operations as the user int
 - [x] `app.js` keeps dialogs, file handling, dragging, zoom and rendering, and makes every change through `ops`.
 - [x] Check the operations with a short Node script and the UI in headless Chrome.
 - [x] Update `README.md` and `CLAUDE.md`.
+
+## Phase 12: AI assistant
+
+The assistant is an OpenAI model with the board operations as tools. The board lives in the browser, so the browser runs the chat loop and executes the tools; the server only adds the API key and forwards requests, so the key never reaches the browser.
+
+- [x] `.env` holds `OPENAI_API_KEY` and optionally `OPENAI_MODEL` (default `gpt-6-luna`); loaded with `python-dotenv`. `.env` is ignored by git.
+- [x] Server: `POST /api/chat` forwards `messages` and `tools` to the Chat Completions API and returns the response or a readable error (missing key, OpenAI error, network error).
+- [x] `static/assistant.js`: tool definitions over `ops` (rename whiteboard; add, rename, move and delete cards; add, edit, move and delete properties; add, update and delete links; search), a system prompt with the current board (pictures left out), and the loop that calls the server and runs tools until the model answers. Tool errors are returned to the model. Deletes ask the user for confirmation first.
+- [x] The chat is part of the board: `chat` in the JSON file holds the messages in Chat Completions format. Older files without `chat` load with an empty chat. Chat changes mark the board as unsaved.
+- [x] Chat panel in the bottom right corner, opened and closed with an Assistant toolbar button: messages, a short line per tool action, a text box (Enter sends, Shift+Enter for a new line), Send, and Clear (with confirmation). Create and Load are disabled while the assistant is working.
+- [x] Check the tool loop with a stubbed model in headless Chrome and the server with a fake OpenAI endpoint.
+- [ ] Check by hand with a real key.
+- [x] Update `README.md` and `CLAUDE.md`.
+
+## Phase 13: Model choice
+
+- [x] Server: `MODELS` lists the selectable models (`gpt-6-luna`, `gpt-6.2-astra`). The default is `OPENAI_MODEL` or `gpt-6-luna`, and is added to the list if missing. `GET /api/models` returns the list and the default; `POST /api/chat` takes an optional `model` and rejects models not in the list.
+- [x] Chat panel: a model dropdown in its header, filled from `/api/models` with the default selected. The choice is a view setting and is not saved in the file.
+- [x] Update `README.md`.
+- [x] Each model in `MODELS` has its own `reasoning_effort` (`none` for `gpt-6-luna`, left out for `gpt-6.2-astra`, which rejects `none`), replacing the global `OPENAI_REASONING_EFFORT`.
+
+## Phase 14: Always-visible chat panel
+
+- [x] Remove the Assistant toolbar button. The chat panel is always in the bottom right corner, like the search box, with a button that minimizes it to its header and restores it.
+- [x] Without an open board the panel stays visible with its text box, Send, Clear and model choice disabled.
+- [x] Update `README.md`.
+
+## Phase 15: Responses API
+
+`gpt-6.2-astra` rejects function tools in Chat Completions both with reasoning (`reasoning_effort` other than `none`) and without it (`none` is not accepted), so the assistant moves to the Responses API.
+
+- [x] Server: `POST /api/chat` takes `model`, `instructions`, `input` and `tools` and calls `/v1/responses` with `store: false` (nothing is kept at OpenAI; the whiteboard file holds the chat) and encrypted reasoning included, plus `reasoning.effort` from `MODELS` when set.
+- [x] `assistant.js`: tools in Responses format; the system prompt goes in `instructions`; `board.chat` holds Responses items (user messages, reasoning, assistant messages, function calls and their outputs), with output items stored exactly as returned so reasoning carries over between steps.
+- [x] Chat panel reads the new item types; reasoning items are not shown.
+- [x] Re-run the stubbed tool loop and server tests; update `README.md`.

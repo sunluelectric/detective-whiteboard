@@ -66,6 +66,19 @@
       <div class="row"><button id="link-delete">Delete link</button></div>
     </div>
   </div>
+  <div id="chat">
+    <div class="chat-head">
+      <span>Assistant</span>
+      <select id="chat-model" title="Model"></select>
+      <button id="chat-clear" class="icon" title="Clear the chat history">Clear</button>
+      <button id="chat-toggle" class="icon" title="Minimize assistant">&minus;</button>
+    </div>
+    <div id="chat-messages"></div>
+    <form id="chat-form">
+      <textarea id="chat-input" rows="3" placeholder="Ask the assistant (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button id="chat-send">Send</button>
+    </form>
+  </div>
   <dialog id="dialog">
     <form method="dialog">
       <h3 id="dialog-title"></h3>
@@ -78,6 +91,7 @@
     </form>
   </dialog>
   <script src="ops.js"></script>
+  <script src="assistant.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

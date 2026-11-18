@@ -18,6 +18,8 @@ let pictureCardId = null;
 let searchMode = "global"; // one of ops.SEARCH_MODES
 let searchQuery = null; // argument for ops.search, or null when the search fields are empty
 let found = null; // { cards: Set, properties: Set } of IDs from the last search
+let chatBusy = false;
+let chatError = null;
 
 const $ = (id) => document.getElementById(id);
 const viewport = $("viewport");
@@ -97,6 +99,7 @@ async function confirmDiscard() {
 function openBoard(newBoard) {
   board = newBoard;
   dirty = false;
+  chatError = null;
   selectedLinkId = null;
   linkSource = null;
   setZoom(1);
@@ -191,13 +194,14 @@ viewport.addEventListener(
 async function addCard() {
   const name = await askText("New card", "Name");
   if (!name) return;
-  const offset = (board.cards.length % 8) * 24;
-  ops.addCard(board, {
-    name,
-    x: viewport.scrollLeft / zoom + 40 + offset,
-    y: viewport.scrollTop / zoom + 40 + offset,
-  });
+  ops.addCard(board, { name, ...newCardPosition() });
   changed();
+}
+
+// Near the top left of the visible area, shifted a little for each card so new cards do not stack exactly.
+function newCardPosition() {
+  const offset = (board.cards.length % 8) * 24;
+  return { x: viewport.scrollLeft / zoom + 40 + offset, y: viewport.scrollTop / zoom + 40 + offset };
 }
 
 async function renameCard(card) {
@@ -431,6 +435,102 @@ $("search-toggle").addEventListener("click", () => {
   if (!collapsed) $(searchMode === "property" ? "search-tag" : "search-input").focus();
 });
 
+// ---------- Assistant ----------
+
+async function sendChat() {
+  const text = $("chat-input").value.trim();
+  if (!text || chatBusy) return;
+  $("chat-input").value = "";
+  chatBusy = true;
+  chatError = null;
+  try {
+    await assistant.send(board, text, {
+      onUpdate: changed,
+      confirm: (question) => askConfirm("Assistant", question, "Allow"),
+      cardPosition: newCardPosition,
+      model: $("chat-model").value,
+    });
+  } catch (err) {
+    chatError = err.message;
+  }
+  chatBusy = false;
+  render();
+  $("chat-input").focus();
+}
+
+async function clearChat() {
+  if (!board.chat.length) return;
+  if (!(await askConfirm("Clear chat", "Delete the whole chat history of this whiteboard?", "Clear"))) return;
+  ops.clearChat(board);
+  chatError = null;
+  changed();
+}
+
+// One short line per function call, e.g. "add card: Alice", marked as failed when the tool returned an error.
+function actionLine(call, results) {
+  let args = {};
+  try {
+    args = JSON.parse(call.arguments);
+  } catch {}
+  const detail = args.name ?? (args.tag ? `${args.tag}${args.content ? `: ${args.content}` : ""}` : args.keyword) ?? "";
+  const result = results.get(call.call_id);
+  const label = call.name.replaceAll("_", " ") + (detail ? `: ${detail}` : "");
+  return result?.error ? el("div", { class: "msg action failed" }, `${label} (${result.error})`) : el("div", { class: "msg action" }, label);
+}
+
+let renderedChat = []; // what the chat panel shows, so it is rebuilt and scrolled only when that changes
+
+function renderChat() {
+  const chat = board?.chat ?? [];
+  const state = [board, chat, chat.length, chatBusy, chatError];
+  if (state.every((value, i) => value === renderedChat[i])) return;
+  renderedChat = state;
+  const outputs = chat.filter((item) => item.type === "function_call_output");
+  const results = new Map(outputs.map((item) => [item.call_id, JSON.parse(item.output)]));
+  const nodes = [];
+  // Reasoning items are kept for the model but not shown.
+  for (const item of chat) {
+    if (item.role === "user") nodes.push(el("div", { class: "msg user" }, item.content));
+    else if (item.type === "message") nodes.push(el("div", { class: "msg assistant" }, assistant.messageText(item)));
+    else if (item.type === "function_call") nodes.push(actionLine(item, results));
+  }
+  if (chatBusy) nodes.push(el("div", { class: "msg status" }, "Working..."));
+  if (chatError) nodes.push(el("div", { class: "msg error" }, chatError));
+  const list = $("chat-messages");
+  list.replaceChildren(...nodes);
+  list.scrollTop = list.scrollHeight;
+  for (const id of ["chat-send", "chat-input", "chat-clear", "chat-model"]) $(id).disabled = !board || chatBusy;
+}
+
+// Fills the model dropdown from the server; if that fails it stays hidden and the server's default is used.
+async function loadModels() {
+  try {
+    const { models, default: chosen } = await (await fetch("/api/models")).json();
+    $("chat-model").replaceChildren(...models.map((model) => el("option", { value: model }, model)));
+    $("chat-model").value = chosen;
+  } catch {}
+}
+
+loadModels();
+
+$("chat-toggle").addEventListener("click", () => {
+  const collapsed = $("chat").classList.toggle("collapsed");
+  $("chat-toggle").textContent = collapsed ? "+" : "\u2212";
+  $("chat-toggle").title = collapsed ? "Show assistant" : "Minimize assistant";
+  if (!collapsed) $("chat-input").focus();
+});
+$("chat-clear").addEventListener("click", clearChat);
+$("chat-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  sendChat();
+});
+$("chat-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendChat();
+  }
+});
+
 // ---------- Rendering ----------
 
 function render() {
@@ -440,10 +540,13 @@ function render() {
   renderLinks();
   renderLinkPanel();
   renderSearchCount();
+  renderChat();
 }
 
 function renderToolbar() {
   for (const button of document.querySelectorAll("[data-needs-board]")) button.disabled = !board;
+  // Replacing the board while the assistant works on it would mix up the two boards.
+  $("btn-create").disabled = $("btn-load").disabled = chatBusy;
   $("board-name").textContent = board ? board.name + (dirty ? " *" : "") : "";
   $("status").textContent = linkSource ? "Click a card or property to link to (Esc to cancel)" : "";
   $("empty-hint").hidden = !!board;

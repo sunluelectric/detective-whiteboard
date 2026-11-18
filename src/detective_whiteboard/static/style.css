@@ -183,3 +183,34 @@ body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e
 /* OK comes first in the markup so Enter submits it; Cancel is shown first. */
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid #e3e0d6; }
 #dialog-cancel { order: -1; }
+
+#chat {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 360px;
+  height: 460px;
+  max-height: calc(100vh - 160px);
+  display: flex;
+  flex-direction: column;
+  background: #fffef9;
+  border: 1px solid #999;
+  border-radius: 4px;
+  box-shadow: 2px 3px 12px rgba(0, 0, 0, 0.3);
+}
+#chat.collapsed { width: auto; height: auto; }
+#chat.collapsed #chat-messages, #chat.collapsed #chat-form, #chat.collapsed #chat-model, #chat.collapsed #chat-clear { display: none; }
+.chat-head span { margin-right: 8px; }
+.chat-head { display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: #d9cfb4; font-weight: bold; }
+.chat-head span { flex: 1; }
+#chat-model { font: inherit; font-weight: normal; font-size: 12px; }
+#chat-model:empty { display: none; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.msg { max-width: 85%; padding: 5px 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+.msg.user { align-self: flex-end; background: #d9cfb4; }
+.msg.assistant { align-self: flex-start; background: #fff; border: 1px solid #e3e0d6; }
+.msg.action { align-self: flex-start; padding: 0 8px; color: #777; font-size: 12px; }
+.msg.action.failed, .msg.error { color: #c62828; }
+.msg.status { align-self: flex-start; color: #777; font-style: italic; }
+#chat-form { display: flex; gap: 6px; padding: 6px; border-top: 1px solid #e3e0d6; }
+#chat-input { flex: 1; font: inherit; resize: none; padding: 4px 6px; border: 1px solid #aaa; border-radius: 3px; }

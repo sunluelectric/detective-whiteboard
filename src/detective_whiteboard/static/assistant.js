@@ -1,0 +1,243 @@
+"use strict";
+
+// The AI assistant: tools over ops, the system prompt, and the chat loop. It does not touch the page.
+// The chat is stored in board.chat as Responses API input items, so it is saved with the whiteboard.
+// The server at /api/chat adds the API key and forwards each request to OpenAI.
+const assistant = (() => {
+  const MAX_STEPS = 20;
+
+  const string = (description) => ({ type: "string", description });
+  const number = (description) => ({ type: "number", description });
+  const endpoint = {
+    type: "object",
+    description: "A card, or a property of a card",
+    properties: {
+      card: string("Card ID"),
+      property: string("Property ID; leave out to use the card itself"),
+    },
+    required: ["card"],
+  };
+  const linkLook = {
+    color: string(`One of: ${Object.keys(ops.COLORS).join(", ")}, or #rrggbb`),
+    style: { type: "string", enum: ops.STYLES },
+    direction: {
+      type: "string",
+      enum: ops.DIRECTIONS,
+      description: "forward: arrow from source to target; backward: arrow from target to source; none: no arrow",
+    },
+  };
+  const propertyLabel = (board, cardId, propertyId) => {
+    const prop = ops.getProperty(board, cardId, propertyId);
+    return `"${prop.tag}: ${prop.content}" of card "${ops.getCard(board, cardId).name}"`;
+  };
+  const endpointLabel = (board, { card, property }) =>
+    property ? propertyLabel(board, card, property) : `card "${ops.getCard(board, card).name}"`;
+
+  // run(board, args, hooks) makes the change and returns what the model sees.
+  // confirm(board, args) returns the question shown to the user before a delete.
+  const TOOLS = {
+    rename_whiteboard: {
+      description: "Rename the whiteboard.",
+      parameters: { name: string("New name") },
+      required: ["name"],
+      run: (board, a) => ops.renameBoard(board, a.name),
+    },
+    add_card: {
+      description:
+        "Add a card with a name, no picture and no properties. Returns the new card with its ID. " +
+        "Leave out x and y to place it in the part of the board the user is looking at.",
+      parameters: { name: string("Card name"), x: number("Left edge"), y: number("Top edge") },
+      required: ["name"],
+      run: (board, a, hooks) =>
+        ops.addCard(board, { name: a.name, ...(a.x === undefined || a.y === undefined ? hooks.cardPosition() : a) }),
+    },
+    rename_card: {
+      description: "Rename a card.",
+      parameters: { card: string("Card ID"), name: string("New name") },
+      required: ["card", "name"],
+      run: (board, a) => ops.renameCard(board, a.card, a.name),
+    },
+    move_card: {
+      description: "Move a card to a position on the board.",
+      parameters: { card: string("Card ID"), x: number("Left edge"), y: number("Top edge") },
+      required: ["card", "x", "y"],
+      run: (board, a) => ops.moveCard(board, a.card, a.x, a.y),
+    },
+    delete_card: {
+      description: "Delete a card and every link attached to it or its properties. The user is asked to confirm.",
+      parameters: { card: string("Card ID") },
+      required: ["card"],
+      confirm: (board, a) => `The assistant wants to delete card "${ops.getCard(board, a.card).name}" and its links.`,
+      run: (board, a) => ops.deleteCard(board, a.card),
+    },
+    add_property: {
+      description: "Add a property (tag and content) at the bottom of a card. Returns the new property with its ID.",
+      parameters: { card: string("Card ID"), tag: string("Tag, for example Age"), content: string("Content") },
+      required: ["card", "tag", "content"],
+      run: (board, a) => ops.addProperty(board, a.card, a),
+    },
+    edit_property: {
+      description: "Change the tag, the content or both of a property. Links stay attached.",
+      parameters: {
+        card: string("Card ID"),
+        property: string("Property ID"),
+        tag: string("New tag; leave out to keep it"),
+        content: string("New content; leave out to keep it"),
+      },
+      required: ["card", "property"],
+      run: (board, a) => ops.editProperty(board, a.card, a.property, a),
+    },
+    move_property: {
+      description: "Move a property to a position in its card's list; 0 is the top.",
+      parameters: { card: string("Card ID"), property: string("Property ID"), position: { type: "integer" } },
+      required: ["card", "property", "position"],
+      run: (board, a) => ops.moveProperty(board, a.card, a.property, a.position),
+    },
+    delete_property: {
+      description: "Delete a property and every link attached to it. The user is asked to confirm.",
+      parameters: { card: string("Card ID"), property: string("Property ID") },
+      required: ["card", "property"],
+      confirm: (board, a) => `The assistant wants to delete property ${propertyLabel(board, a.card, a.property)} and its links.`,
+      run: (board, a) => ops.deleteProperty(board, a.card, a.property),
+    },
+    add_link: {
+      description:
+        "Link two cards, or properties of two different cards. New links are solid black arrows from source to " +
+        "target unless color, style or direction say otherwise. Returns the new link with its ID.",
+      parameters: { source: endpoint, target: endpoint, ...linkLook },
+      required: ["source", "target"],
+      run: (board, a) => ops.addLink(board, a.source, a.target, { color: a.color, style: a.style, direction: a.direction }),
+    },
+    update_link: {
+      description: "Change the color, style or direction of a link.",
+      parameters: { link: string("Link ID"), ...linkLook },
+      required: ["link"],
+      run: (board, a) => ops.updateLink(board, a.link, { color: a.color, style: a.style, direction: a.direction }),
+    },
+    delete_link: {
+      description: "Delete a link. The user is asked to confirm.",
+      parameters: { link: string("Link ID") },
+      required: ["link"],
+      confirm: (board, a) => {
+        const link = ops.getLink(board, a.link);
+        return `The assistant wants to delete the link from ${endpointLabel(board, link.source)} to ${endpointLabel(board, link.target)}.`;
+      },
+      run: (board, a) => ops.deleteLink(board, a.link),
+    },
+    search: {
+      description:
+        "Find cards and properties. Modes: global (keyword against card names and 'Tag: Content' of properties), " +
+        "card (keyword against card names), property (tag equals the property tag ignoring case, and content " +
+        "matches its content). In keyword and content, * matches any characters and ? one character; matching " +
+        "ignores case and can be anywhere in the text. Returns the IDs of matching cards and properties.",
+      parameters: {
+        mode: { type: "string", enum: ops.SEARCH_MODES },
+        keyword: string("For global and card modes"),
+        tag: string("For property mode"),
+        content: string("For property mode; leave out to match every property with the tag"),
+      },
+      required: ["mode"],
+      run: (board, a) => ops.search(board, a),
+    },
+  };
+
+  // strict is off because the optional arguments do not fit strict mode's schema rules.
+  const TOOL_SCHEMAS = Object.entries(TOOLS).map(([name, tool]) => ({
+    type: "function",
+    name,
+    description: tool.description,
+    parameters: { type: "object", properties: tool.parameters, required: tool.required },
+    strict: false,
+  }));
+
+  // The board as the model sees it: pictures are left out and link colors are named where possible.
+  function boardState(board) {
+    const colorNames = Object.fromEntries(Object.entries(ops.COLORS).map(([name, value]) => [value, name]));
+    return {
+      name: board.name,
+      cards: board.cards.map(({ id, name, x, y, picture, properties }) => ({
+        id,
+        name,
+        x,
+        y,
+        hasPicture: !!picture,
+        properties,
+      })),
+      links: board.links.map((l) => ({ ...l, color: colorNames[l.color] ?? l.color })),
+    };
+  }
+
+  function systemPrompt(board) {
+    return [
+      "You are the assistant in a detective whiteboard app. The user organizes a case on a whiteboard of cards",
+      "(people, places, objects, events). Each card has a name, an optional picture and an ordered list of",
+      "properties shown as 'Tag: Content'. Links connect cards, or properties of two different cards.",
+      "",
+      "Use the tools to change the whiteboard when the user asks, and answer questions about the case from it.",
+      "Refer to cards, properties and links by the IDs in the current whiteboard below; it is updated after",
+      "every change. You cannot see or change pictures. Cards are 220 wide; when you place several cards, keep",
+      "about 260 between them horizontally and 300 vertically. Keep replies short and plain text.",
+      "",
+      "Current whiteboard (JSON):",
+      JSON.stringify(boardState(board)),
+    ].join("\n");
+  }
+
+  async function complete(board, model) {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, instructions: systemPrompt(board), input: board.chat, tools: TOOL_SCHEMAS }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message ?? `Request failed with status ${response.status}`);
+    return data.output;
+  }
+
+  // Every function call gets an output, even on errors, so the stored chat stays valid for the next request.
+  async function runTool(board, call, hooks) {
+    try {
+      const tool = TOOLS[call.name];
+      if (!tool) throw new Error(`Unknown tool ${call.name}`);
+      // Models sometimes send null for optional arguments; treat that as left out.
+      const args = JSON.parse(call.arguments || "{}", (key, value) => (value === null ? undefined : value));
+      if (tool.confirm && !(await hooks.confirm(tool.confirm(board, args)))) {
+        return { error: "The user declined this change." };
+      }
+      return tool.run(board, args, hooks) ?? { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
+  // Sends the user's text and runs tools until the model answers without calling one.
+  // Output items (reasoning, messages, function calls) are stored exactly as returned, because the
+  // model needs its encrypted reasoning back in the next request.
+  // hooks: onUpdate() after every change to the board or chat, confirm(question) resolving to
+  // true or false, cardPosition() returning { x, y } for a new card, and model (empty for the
+  // server's default).
+  async function send(board, text, hooks) {
+    board.chat.push({ role: "user", content: text });
+    hooks.onUpdate();
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const output = await complete(board, hooks.model);
+      board.chat.push(...output);
+      hooks.onUpdate();
+      const calls = output.filter((item) => item.type === "function_call");
+      if (!calls.length) return;
+      for (const call of calls) {
+        const result = await runTool(board, call, hooks);
+        board.chat.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(result) });
+        hooks.onUpdate();
+      }
+    }
+    throw new Error(`The assistant stopped after ${MAX_STEPS} steps.`);
+  }
+
+  // The visible text of an assistant message item.
+  function messageText(item) {
+    return item.content.map((part) => part.text ?? part.refusal ?? "").join("");
+  }
+
+  return { TOOLS, send, messageText };
+})();

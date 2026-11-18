@@ -60,7 +60,7 @@ const ops = (() => {
   // ---------- Whiteboard ----------
 
   function newBoard(name) {
-    return { version: 1, name: text(name, "Whiteboard name"), cards: [], links: [] };
+    return { version: 1, name: text(name, "Whiteboard name"), cards: [], links: [], chat: [] };
   }
 
   // Checks parsed file data and drops links whose card or property does not exist.
@@ -73,6 +73,7 @@ const ops = (() => {
       return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));
     };
     data.links = data.links.filter((l) => exists(l.source) && exists(l.target));
+    data.chat ??= [];
     return data;
   }
 
@@ -201,6 +202,13 @@ const ops = (() => {
     board.links = board.links.filter((l) => l.id !== linkId);
   }
 
+  // ---------- Chat ----------
+
+  // The assistant's chat is stored in board.chat as Responses API input items (see assistant.js).
+  function clearChat(board) {
+    board.chat = [];
+  }
+
   // ---------- Search ----------
 
   // "*" matches any run of characters and "?" one character; everything else is literal.
@@ -243,6 +251,9 @@ const ops = (() => {
     STYLES,
     DIRECTIONS,
     SEARCH_MODES,
+    getCard,
+    getProperty,
+    getLink,
     newBoard,
     loadBoard,
     renameBoard,
@@ -258,6 +269,7 @@ const ops = (() => {
     addLink,
     updateLink,
     deleteLink,
+    clearChat,
     search,
   };
 })();
