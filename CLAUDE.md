@@ -54,8 +54,10 @@ Link management:
 - On each card and on each property, there is an add link button. Once the user click that button, and then click another card or the property of another card, a link will be created and link the card or property to the other card of the property.
 - The link is a solid black line with direction. An arrow points from the source to the destination.
 - The user can select a link by clicking the line. The user can change the property of the link, including the color (commonly used colors should be provided), the shape (solid, dashed or dot), the direction of the arrow (A to B, B to A, or undirected). The user can also delete the link.
+- Each link has a message, which the user can add or edit in the link panel. A non-empty message is displayed on the line.
+- The user can resize cards.
 
-Not planned: resizing cards and undo.
+Not planned: undo.
 
 ### Backend Storage
 

@@ -25,7 +25,9 @@ const assistant = (() => {
       enum: ops.DIRECTIONS,
       description: "forward: arrow from source to target; backward: arrow from target to source; none: no arrow",
     },
+    message: string("Text shown on the line; empty for none"),
   };
+  const linkChanges = (a) => ({ color: a.color, style: a.style, direction: a.direction, message: a.message });
   const propertyLabel = (board, cardId, propertyId) => {
     const prop = ops.getProperty(board, cardId, propertyId);
     return `"${prop.tag}: ${prop.content}" of card "${ops.getCard(board, cardId).name}"`;
@@ -71,6 +73,12 @@ const assistant = (() => {
       required: ["card", "x", "y"],
       run: (board, a) => ops.moveCard(board, a.card, a.x, a.y),
     },
+    resize_card: {
+      description: `Resize a card. The smallest size is ${ops.CARD_SIZE.minWidth} x ${ops.CARD_SIZE.minHeight}.`,
+      parameters: { card: string("Card ID"), width: number("Width"), height: number("Height; leave out to fit the content") },
+      required: ["card", "width"],
+      run: (board, a) => ops.resizeCard(board, a.card, a.width, a.height ?? null),
+    },
     delete_card: {
       description: "Delete a card and every link attached to it or its properties. The user is asked to confirm.",
       parameters: { card: string("Card ID") },
@@ -111,16 +119,16 @@ const assistant = (() => {
     add_link: {
       description:
         "Link two cards, or properties of two different cards. New links are solid black arrows from source to " +
-        "target unless color, style or direction say otherwise. Returns the new link with its ID.",
+        "target without a message unless color, style, direction or message say otherwise. Returns the new link with its ID.",
       parameters: { source: endpoint, target: endpoint, ...linkLook },
       required: ["source", "target"],
-      run: (board, a) => ops.addLink(board, a.source, a.target, { color: a.color, style: a.style, direction: a.direction }),
+      run: (board, a) => ops.addLink(board, a.source, a.target, linkChanges(a)),
     },
     update_link: {
-      description: "Change the color, style or direction of a link.",
+      description: "Change the color, style, direction or message of a link.",
       parameters: { link: string("Link ID"), ...linkLook },
       required: ["link"],
-      run: (board, a) => ops.updateLink(board, a.link, { color: a.color, style: a.style, direction: a.direction }),
+      run: (board, a) => ops.updateLink(board, a.link, linkChanges(a)),
     },
     delete_link: {
       description: "Delete a link. The user is asked to confirm.",
@@ -164,11 +172,13 @@ const assistant = (() => {
     const colorNames = Object.fromEntries(Object.entries(ops.COLORS).map(([name, value]) => [value, name]));
     return {
       name: board.name,
-      cards: board.cards.map(({ id, name, x, y, picture, properties }) => ({
+      cards: board.cards.map(({ id, name, x, y, width, height, picture, properties }) => ({
         id,
         name,
         x,
         y,
+        width,
+        height,
         hasPicture: !!picture,
         properties,
       })),
@@ -184,8 +194,10 @@ const assistant = (() => {
       "",
       "Use the tools to change the whiteboard when the user asks, and answer questions about the case from it.",
       "Refer to cards, properties and links by the IDs in the current whiteboard below; it is updated after",
-      "every change. You cannot see or change pictures. Cards are 220 wide; when you place several cards, keep",
-      "about 260 between them horizontally and 300 vertically. Keep replies short and plain text.",
+      "every change. You cannot see or change pictures. Cards are 220 wide unless resized (height null fits the",
+      "content). When you place several cards, leave a gap of about 40 between cards side by side and start",
+      "each row about 300 below the previous one.",
+      "Links can carry a short message shown on the line. Keep replies short and plain text.",
       "",
       "Current whiteboard (JSON):",
       JSON.stringify(boardState(board)),

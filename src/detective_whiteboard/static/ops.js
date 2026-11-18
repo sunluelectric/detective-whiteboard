@@ -17,6 +17,7 @@ const ops = (() => {
   const STYLES = ["solid", "dashed", "dotted"];
   const DIRECTIONS = ["forward", "backward", "none"];
   const SEARCH_MODES = ["global", "card", "property"];
+  const CARD_SIZE = { width: 220, minWidth: 160, minHeight: 80 };
 
   function uid(prefix) {
     return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -73,6 +74,11 @@ const ops = (() => {
       return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));
     };
     data.links = data.links.filter((l) => exists(l.source) && exists(l.target));
+    for (const card of data.cards) {
+      card.width ??= CARD_SIZE.width;
+      card.height ??= null;
+    }
+    for (const link of data.links) link.message ??= "";
     data.chat ??= [];
     return data;
   }
@@ -89,6 +95,8 @@ const ops = (() => {
       name: text(name, "Card name"),
       x: coordinate(x, "x"),
       y: coordinate(y, "y"),
+      width: CARD_SIZE.width,
+      height: null,
       picture: null,
       properties: [],
     };
@@ -104,6 +112,13 @@ const ops = (() => {
     const card = getCard(board, cardId);
     card.x = coordinate(x, "x");
     card.y = coordinate(y, "y");
+  }
+
+  // height null makes the card as tall as its content.
+  function resizeCard(board, cardId, width, height) {
+    const card = getCard(board, cardId);
+    card.width = Math.max(CARD_SIZE.minWidth, coordinate(width, "Width"));
+    card.height = height === null ? null : Math.max(CARD_SIZE.minHeight, coordinate(height, "Height"));
   }
 
   // picture is an image data URL, or null to remove the picture.
@@ -163,8 +178,9 @@ const ops = (() => {
     return { card, property };
   }
 
-  // color is a name from COLORS or "#rrggbb"; style is in STYLES; direction is in DIRECTIONS.
-  function applyLinkChanges(link, { color, style, direction }) {
+  // color is a name from COLORS or "#rrggbb"; style is in STYLES; direction is in DIRECTIONS;
+  // message is the text shown on the line, empty for none.
+  function applyLinkChanges(link, { color, style, direction, message }) {
     const changes = {};
     if (color !== undefined) {
       changes.color = COLORS[color] ?? color;
@@ -174,10 +190,11 @@ const ops = (() => {
     }
     if (style !== undefined) changes.style = oneOf(style, STYLES, "Style");
     if (direction !== undefined) changes.direction = oneOf(direction, DIRECTIONS, "Direction");
+    if (message !== undefined) changes.message = String(message).trim();
     Object.assign(link, changes);
   }
 
-  // A new link is solid black and points from source to target unless changes say otherwise.
+  // A new link is solid black, has no message and points from source to target unless changes say otherwise.
   function addLink(board, source, target, changes = {}) {
     const link = {
       id: uid("l"),
@@ -186,6 +203,7 @@ const ops = (() => {
       color: COLORS.black,
       style: "solid",
       direction: "forward",
+      message: "",
     };
     if (link.source.card === link.target.card) throw new Error("A link must connect two different cards");
     applyLinkChanges(link, changes);
@@ -251,6 +269,7 @@ const ops = (() => {
     STYLES,
     DIRECTIONS,
     SEARCH_MODES,
+    CARD_SIZE,
     getCard,
     getProperty,
     getLink,
@@ -260,6 +279,7 @@ const ops = (() => {
     addCard,
     renameCard,
     moveCard,
+    resizeCard,
     setCardPicture,
     deleteCard,
     addProperty,

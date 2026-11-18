@@ -1,6 +1,6 @@
 "use strict";
 
-const CARD_WIDTH = 220;
+const PICTURE_WIDTH = 480; // pictures are scaled down to this width so wider cards still look sharp
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 2;
 const BOARD_MIN_WIDTH = 4000;
@@ -250,7 +250,7 @@ $("file-picture").addEventListener("change", async (event) => {
   } finally {
     URL.revokeObjectURL(img.src);
   }
-  const scale = Math.min(1, CARD_WIDTH / img.naturalWidth);
+  const scale = Math.min(1, PICTURE_WIDTH / img.naturalWidth);
   const canvas = el("canvas");
   canvas.width = Math.round(img.naturalWidth * scale);
   canvas.height = Math.round(img.naturalHeight * scale);
@@ -260,40 +260,70 @@ $("file-picture").addEventListener("change", async (event) => {
   changed();
 });
 
-function startDrag(event, card, cardEl) {
-  if (event.button !== 0 || event.target.closest("button") || linkSource) return;
+// Follows the pointer from a pointerdown until it is released, calling onMove(dx, dy) with the distance in
+// board coordinates. Used for moving and resizing a card.
+function trackPointer(event, card, onMove) {
   event.preventDefault();
   dragging = true;
   let moved = false;
-  const header = event.currentTarget;
+  const target = event.currentTarget;
   const startX = event.clientX;
   const startY = event.clientY;
-  const origX = card.x;
-  const origY = card.y;
-  header.setPointerCapture(event.pointerId);
+  target.setPointerCapture(event.pointerId);
   const move = (e) => {
-    if (!findCard(card.id)) return; // deleted by the assistant during the drag
-    ops.moveCard(board, card.id, origX + (e.clientX - startX) / zoom, origY + (e.clientY - startY) / zoom);
-    if (!moved && (card.x !== origX || card.y !== origY)) {
-      moved = true;
-      edits++;
-    }
-    cardEl.style.left = `${card.x}px`;
-    cardEl.style.top = `${card.y}px`;
+    const dx = (e.clientX - startX) / zoom;
+    const dy = (e.clientY - startY) / zoom;
+    if (!findCard(card.id) || (!moved && !dx && !dy)) return; // the assistant may have deleted the card
+    if (!moved) edits++;
+    moved = true;
+    onMove(dx, dy);
     renderLinks();
   };
   const up = () => {
-    header.removeEventListener("pointermove", move);
-    header.removeEventListener("pointerup", up);
-    header.removeEventListener("pointercancel", up);
+    target.removeEventListener("pointermove", move);
+    target.removeEventListener("pointerup", up);
+    target.removeEventListener("pointercancel", up);
     dragging = false;
     if (moved) dirty = true;
     if (renderPending) render();
     else renderToolbar();
   };
-  header.addEventListener("pointermove", move);
-  header.addEventListener("pointerup", up);
-  header.addEventListener("pointercancel", up);
+  target.addEventListener("pointermove", move);
+  target.addEventListener("pointerup", up);
+  target.addEventListener("pointercancel", up);
+}
+
+function startDrag(event, card, cardEl) {
+  if (event.button !== 0 || event.target.closest("button") || linkSource) return;
+  const origX = card.x;
+  const origY = card.y;
+  trackPointer(event, card, (dx, dy) => {
+    ops.moveCard(board, card.id, origX + dx, origY + dy);
+    cardEl.style.left = `${card.x}px`;
+    cardEl.style.top = `${card.y}px`;
+  });
+}
+
+function startResize(event, card, cardEl) {
+  if (event.button !== 0 || linkSource) return;
+  const origWidth = cardEl.offsetWidth;
+  const origHeight = cardEl.offsetHeight;
+  trackPointer(event, card, (dx, dy) => {
+    ops.resizeCard(board, card.id, origWidth + dx, origHeight + dy);
+    sizeCard(cardEl, card);
+  });
+}
+
+function fitCardHeight(card) {
+  if (card.height === null) return;
+  ops.resizeCard(board, card.id, card.width, null);
+  changed();
+}
+
+function sizeCard(cardEl, card) {
+  cardEl.style.width = `${card.width}px`;
+  cardEl.style.height = card.height === null ? "" : `${card.height}px`;
+  cardEl.classList.toggle("sized", card.height !== null);
 }
 
 // ---------- Properties ----------
@@ -389,6 +419,14 @@ function updateLink(changes) {
   ops.updateLink(board, selectedLinkId, changes);
   changed();
 }
+
+// Saved on Enter or when the field loses focus; Escape deselects the link first, which drops the edit.
+$("link-message").addEventListener("change", (event) => {
+  if (selectedLink() && event.target.value.trim() !== selectedLink().message) updateLink({ message: event.target.value });
+});
+$("link-message").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") event.target.blur();
+});
 
 viewport.addEventListener("click", (event) => {
   if (event.target.closest(".card") || event.target.closest("#links g")) return;
@@ -616,7 +654,7 @@ function renderCard(card) {
   if (found?.cards.has(card.id)) cardEl.classList.add("highlight");
   cardEl.style.left = `${card.x}px`;
   cardEl.style.top = `${card.y}px`;
-  cardEl.style.width = `${CARD_WIDTH}px`;
+  sizeCard(cardEl, card);
 
   const header = el(
     "div",
@@ -637,7 +675,8 @@ function renderCard(card) {
   }
   picture.append(iconButton("Picture", "Update picture", () => choosePicture(card)));
 
-  const list = el("ul", { class: "properties" });
+  // A card with a fixed height scrolls its properties, and links to them follow.
+  const list = el("ul", { class: "properties", onscroll: renderLinks });
   card.properties.forEach((prop, index) => {
     const row = el(
       "li",
@@ -655,7 +694,13 @@ function renderCard(card) {
   });
 
   const addButton = el("button", { class: "add-property", onclick: () => addProperty(card) }, "+ Add property");
-  cardEl.append(header, picture, list, addButton);
+  const resizer = el("div", {
+    class: "resizer",
+    title: "Drag to resize; double-click to fit the height to the content",
+    onpointerdown: (e) => startResize(e, card, cardEl),
+    ondblclick: () => fitCardHeight(card),
+  });
+  cardEl.append(header, picture, list, addButton, resizer);
   return cardEl;
 }
 
@@ -676,7 +721,14 @@ function endpointRect(endpoint) {
     ? cardEl?.querySelector(`.property[data-id="${CSS.escape(endpoint.property)}"]`)
     : cardEl;
   // Missing while a drag puts off drawing cards the assistant added.
-  return node && { rect: boardRect(node), isProperty: !!endpoint.property };
+  if (!node) return null;
+  const rect = boardRect(node);
+  if (endpoint.property) {
+    // A property scrolled out of view in a card with a fixed height is anchored at the card's edge.
+    const card = boardRect(cardEl);
+    rect.cy = Math.min(Math.max(rect.cy, card.y), card.y + card.h);
+  }
+  return { rect, isProperty: !!endpoint.property };
 }
 
 // Point where the line from the rect center towards (px, py) leaves the rect.
@@ -739,13 +791,20 @@ function renderLinks() {
     if (link.direction === "backward") line.setAttribute("marker-start", `url(#${markerId})`);
 
     const group = svg("g", { class: link.id === selectedLinkId ? "selected" : "" });
-    const hit = svg("line", { ...coords, class: "hit" });
-    hit.addEventListener("click", (event) => {
+    group.addEventListener("click", (event) => {
       event.stopPropagation();
       selectLink(link.id);
     });
-    group.append(hit, line);
+    group.append(svg("line", { ...coords, class: "hit" }), line);
     linksLayer.append(group);
+    if (link.message) {
+      const label = svg("text", { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2, class: "label", fill: link.color });
+      label.textContent = link.message;
+      group.append(label);
+      // A box behind the text hides the line, which would otherwise show between the words.
+      const box = label.getBBox();
+      label.before(svg("rect", { x: box.x - 4, y: box.y - 1, width: box.width + 8, height: box.height + 2, rx: 3, class: "label-box" }));
+    }
   }
 }
 
@@ -763,6 +822,8 @@ function renderLinkPanel() {
     return swatch;
   });
   $("link-colors").replaceChildren(...swatches);
+  // Not overwritten while the user is typing in it.
+  if (document.activeElement !== $("link-message")) $("link-message").value = link.message;
   $("link-style").value = link.style;
   $("link-direction").value = link.direction;
 }

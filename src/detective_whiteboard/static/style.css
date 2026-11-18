@@ -47,6 +47,9 @@ button { cursor: pointer; }
 #links .hit { stroke: transparent; stroke-width: 12; fill: none; cursor: pointer; pointer-events: stroke; }
 #links .line { fill: none; stroke-width: 2; pointer-events: none; }
 #links .selected .line { stroke-width: 4; }
+#links .label { font-size: 13px; text-anchor: middle; dominant-baseline: middle; cursor: pointer; }
+#links .label-box { fill: #f4f1e8; cursor: pointer; }
+#links .selected .label { font-weight: bold; }
 
 #cards { position: absolute; inset: 0; pointer-events: none; }
 
@@ -67,6 +70,22 @@ button { cursor: pointer; }
   border-radius: 4px;
   box-shadow: 2px 3px 6px rgba(0, 0, 0, 0.25);
   pointer-events: auto;
+}
+/* A card with a fixed height shrinks its picture and scrolls its properties to fit. */
+.card.sized { display: flex; flex-direction: column; overflow: hidden; }
+.card.sized .card-header, .card.sized .add-property { flex: none; }
+.card.sized .picture { flex: 0 1 auto; min-height: 40px; overflow: hidden; }
+.card.sized .picture img { height: 100%; object-fit: contain; }
+.card.sized .properties { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.card.sized .add-property { margin-top: auto; }
+.resizer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, #999 50%, #999 60%, transparent 60%, transparent 75%, #999 75%, #999 85%, transparent 85%);
 }
 
 .card-header {
@@ -163,6 +182,7 @@ body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e
 }
 #link-panel .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0; }
 #link-colors { display: flex; gap: 4px; }
+#link-message { width: 170px; font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; }
 .swatch { width: 18px; height: 18px; border: 2px solid #fff; border-radius: 50%; outline: 1px solid #aaa; padding: 0; }
 .swatch.active { outline: 2px solid #333; }
 

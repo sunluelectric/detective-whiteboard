@@ -137,3 +137,14 @@ The user keeps working while the assistant waits for the model. Each request alr
 - [x] Concurrency safety: dialogs queue instead of overwriting an open one; a render during a card drag is deferred to the drag's end; link mode ends when its source is deleted; errors from UI actions on deleted items are shown in a dialog.
 - [x] Check the tool loop with a stubbed model in Node, and the UI in headless Chrome.
 - [x] Update `README.md`.
+
+## Phase 17: Link messages and card resizing
+
+- [x] Links get a `message` (default empty). `ops.addLink` and `ops.updateLink` accept it (trimmed; empty removes it). Loading fills it in for older files.
+- [x] Link panel: a Message field below Color, Style and Direction, saved on Enter or when it loses focus. A non-empty message is drawn at the middle of the line in the link's color, and clicking it selects the link.
+- [x] Cards get `width` (default 220) and `height` (`null` fits the content). `ops.resizeCard(board, cardId, width, height)` with a minimum of 160 x 80. Loading fills in the defaults.
+- [x] A handle in the bottom right corner of each card resizes it by dragging; double-clicking it returns the height to fit the content. A card with a fixed height scrolls its property list, and its picture shrinks to fit.
+- [x] Pictures are stored up to 480 wide (was 220) so they stay sharp on wider cards.
+- [x] Assistant: `message` on `add_link` and `update_link`, a `resize_card` tool, and card sizes in the board snapshot.
+- [x] Check in headless Chrome: message editing and display, resizing, fit content, links following resized cards, save and load.
+- [x] Update `README.md` and `CLAUDE.md`.
