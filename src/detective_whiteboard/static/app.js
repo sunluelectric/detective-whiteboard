@@ -3,6 +3,9 @@
 const CARD_WIDTH = 220;
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 2;
+const BOARD_MIN_WIDTH = 4000;
+const BOARD_MIN_HEIGHT = 3000;
+const BOARD_MARGIN = 400;
 const COLORS = {
   black: "#000000",
   red: "#d32f2f",
@@ -61,8 +64,15 @@ function confirmDiscard() {
   return !board || !dirty || confirm("The current whiteboard has unsaved changes. Discard them?");
 }
 
+// Links whose endpoints are missing cannot be drawn, so they are dropped.
+function endpointExists(endpoint) {
+  const card = findCard(endpoint.card);
+  return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));
+}
+
 function openBoard(data) {
   board = data;
+  board.links = board.links.filter((l) => endpointExists(l.source) && endpointExists(l.target));
   dirty = false;
   selectedLinkId = null;
   linkSource = null;
@@ -453,7 +463,20 @@ function svg(tag, attrs) {
   return node;
 }
 
+// The board keeps a minimum size and grows to leave a margin past the farthest card.
+function fitContent() {
+  let width = BOARD_MIN_WIDTH;
+  let height = BOARD_MIN_HEIGHT;
+  for (const cardEl of cardsLayer.children) {
+    width = Math.max(width, cardEl.offsetLeft + cardEl.offsetWidth + BOARD_MARGIN);
+    height = Math.max(height, cardEl.offsetTop + cardEl.offsetHeight + BOARD_MARGIN);
+  }
+  content.style.width = `${width}px`;
+  content.style.height = `${height}px`;
+}
+
 function renderLinks() {
+  fitContent();
   linksLayer.replaceChildren();
   if (!board) return;
   const defs = svg("defs", {});

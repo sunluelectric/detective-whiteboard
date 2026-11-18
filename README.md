@@ -27,7 +27,7 @@ All whiteboard state lives in the browser. Saving and loading go through the bro
 ### Frontend structure
 
 - State: one `board` object that matches the JSON file format below. Every user action changes `board` and then calls `render()`.
-- Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system.
+- Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board content is at least 4000 x 3000 and grows to keep a margin past the farthest card.
 - Zoom: a CSS `transform: scale(zoom)` on the content element scales cards and links together. Pointer positions are divided by `zoom` to convert them to board coordinates.
 - Dragging: the card header is the drag handle. Pointer events update the card's `x` and `y`, and links are redrawn while the card moves.
 - Input: names, tags and contents are collected with simple dialogs (`prompt()` at first).
@@ -78,7 +78,7 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 
 - Create: asks for a name and starts an empty board.
 - Save: downloads `<name>.json`. Where the browser supports `showSaveFilePicker` (Chromium), a save dialog opens with that name filled in. Otherwise the file goes to the download folder.
-- Load: opens a file dialog for `.json` files. The whiteboard name is taken from the file's contents, not from the file name.
+- Load: opens a file dialog for `.json` files. The whiteboard name is taken from the file's contents, not from the file name. Links pointing to a card or property that does not exist are dropped.
 - Rename: changes `name`, which is used for the next save.
 - Create and Load ask for confirmation when the current board has unsaved changes.
 - Every button except Create and Load is disabled until a board is open.

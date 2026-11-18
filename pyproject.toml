@@ -1,7 +1,7 @@
 [project]
 name = "detective-whiteboard"
 version = "0.1.0"
-description = "Add your description here"
+description = "A browser-based detective whiteboard for linking cards, pictures and notes"
 readme = "README.md"
 authors = [
     { name = "sunlu", email = "sunlu.electric@gmail.com" }

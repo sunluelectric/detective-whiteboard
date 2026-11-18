@@ -9,7 +9,7 @@ Development phases for the first version. The design is in `README.md`. Each pha
 
 ## Phase 1: Server and page skeleton
 
-- [x] `main()` serves `static/` on `localhost` (free port) with `http.server` and opens the browser.
+- [x] `main()` serves `static/` on `127.0.0.1:8000` by default (`--host`, `--port`) with `http.server` and opens the browser.
 - [x] `index.html` with toolbar (Create, Load, Save, Rename, Create Card, zoom out / reset / in) and board viewport.
 - [x] `board` state, `render()`, buttons disabled until a board is open.
 - [x] Create, Rename, Save (`showSaveFilePicker` or download), Load (file dialog), unsaved-changes confirmation.
@@ -38,3 +38,9 @@ Development phases for the first version. The design is in `README.md`. Each pha
 - [x] End-to-end check in headless Chrome: create, cards, pictures, properties, reorder, links, link editing, zoom, load round trip, card deletion.
 - [x] Simulated mouse input in headless Chrome: dragging at 100% and 50% zoom, Ctrl + wheel zoom, link selection and deselection.
 - [ ] Check the save dialog by hand in a real browser (it needs a user gesture).
+
+## Phase 6: Loose ends
+
+- [x] Fix stale docs: Phase 1 port note, `pyproject.toml` description.
+- [x] Board grows to fit cards dragged past the right or bottom edge (minimum 4000 x 3000).
+- [x] Load drops links whose card or property does not exist, instead of failing to render.
