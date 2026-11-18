@@ -58,10 +58,49 @@ function iconButton(text, title, onclick) {
   return el("button", { class: "icon", title, onclick }, text);
 }
 
+// ---------- Dialog ----------
+
+// Resolves to the trimmed field values on OK, or null on Cancel / Escape.
+function showDialog({ title, message = "", fields = [], ok = "OK", cancel = "Cancel" }) {
+  const dialog = $("dialog");
+  const inputs = fields.map(({ value = "" }) =>
+    el("input", { value, required: "", pattern: ".*\\S.*", title: "Must not be blank", autocomplete: "off" }),
+  );
+  $("dialog-title").textContent = title;
+  $("dialog-message").textContent = message;
+  $("dialog-message").hidden = !message;
+  $("dialog-fields").replaceChildren(...fields.flatMap(({ label }, i) => [el("label", {}, label), inputs[i]]));
+  $("dialog-ok").textContent = ok;
+  $("dialog-cancel").textContent = cancel;
+  $("dialog-cancel").hidden = !cancel;
+  dialog.returnValue = "";
+  dialog.showModal();
+  inputs[0]?.select();
+  return new Promise((resolve) => {
+    dialog.addEventListener(
+      "close",
+      () => resolve(dialog.returnValue === "ok" ? inputs.map((input) => input.value.trim()) : null),
+      { once: true },
+    );
+  });
+}
+
+async function askText(title, label, value) {
+  return (await showDialog({ title, fields: [{ label, value }] }))?.[0];
+}
+
+async function askConfirm(title, message, ok) {
+  return (await showDialog({ title, message, ok })) !== null;
+}
+
+function showMessage(title, message) {
+  return showDialog({ title, message, cancel: null });
+}
+
 // ---------- Whiteboard ----------
 
-function confirmDiscard() {
-  return !board || !dirty || confirm("The current whiteboard has unsaved changes. Discard them?");
+async function confirmDiscard() {
+  return !board || !dirty || askConfirm("Unsaved changes", "The current whiteboard has unsaved changes. Discard them?", "Discard");
 }
 
 // Links whose endpoints are missing cannot be drawn, so they are dropped.
@@ -81,15 +120,15 @@ function openBoard(data) {
   render();
 }
 
-function createBoard() {
-  if (!confirmDiscard()) return;
-  const name = prompt("Whiteboard name:")?.trim();
+async function createBoard() {
+  if (!(await confirmDiscard())) return;
+  const name = await askText("New whiteboard", "Name");
   if (!name) return;
   openBoard({ version: 1, name, cards: [], links: [] });
 }
 
-function renameBoard() {
-  const name = prompt("New whiteboard name:", board.name)?.trim();
+async function renameBoard() {
+  const name = await askText("Rename whiteboard", "Name", board.name);
   if (!name || name === board.name) return;
   board.name = name;
   changed();
@@ -121,8 +160,8 @@ async function saveBoard() {
   renderToolbar();
 }
 
-function loadBoard() {
-  if (!confirmDiscard()) return;
+async function loadBoard() {
+  if (!(await confirmDiscard())) return;
   $("file-load").click();
 }
 
@@ -133,7 +172,7 @@ $("file-load").addEventListener("change", async (event) => {
   try {
     openBoard(JSON.parse(await file.text()));
   } catch (err) {
-    alert(`Could not load ${file.name}: ${err.message}`);
+    showMessage("Load failed", `Could not load ${file.name}: ${err.message}`);
   }
 });
 
@@ -165,8 +204,8 @@ viewport.addEventListener(
 
 // ---------- Cards ----------
 
-function addCard() {
-  const name = prompt("Card name:")?.trim();
+async function addCard() {
+  const name = await askText("New card", "Name");
   if (!name) return;
   const offset = (board.cards.length % 8) * 24;
   board.cards.push({
@@ -180,15 +219,15 @@ function addCard() {
   changed();
 }
 
-function renameCard(card) {
-  const name = prompt("New card name:", card.name)?.trim();
+async function renameCard(card) {
+  const name = await askText("Rename card", "Name", card.name);
   if (!name || name === card.name) return;
   card.name = name;
   changed();
 }
 
-function deleteCard(card) {
-  if (!confirm(`Delete card "${card.name}" and its links?`)) return;
+async function deleteCard(card) {
+  if (!(await askConfirm("Delete card", `Delete card "${card.name}" and its links?`, "Delete"))) return;
   board.cards = board.cards.filter((c) => c !== card);
   board.links = board.links.filter((l) => l.source.card !== card.id && l.target.card !== card.id);
   changed();
@@ -209,7 +248,7 @@ $("file-picture").addEventListener("change", async (event) => {
   try {
     await img.decode();
   } catch {
-    alert(`Could not read image ${file.name}`);
+    showMessage("Picture failed", `Could not read image ${file.name}`);
     return;
   } finally {
     URL.revokeObjectURL(img.src);
@@ -253,23 +292,26 @@ function startDrag(event, card, cardEl) {
 
 // ---------- Properties ----------
 
-function askProperty(tag = "", content = "") {
-  const newTag = prompt("Tag:", tag)?.trim();
-  if (!newTag) return null;
-  const newContent = prompt("Content:", content)?.trim();
-  if (!newContent) return null;
-  return { tag: newTag, content: newContent };
+async function askProperty(title, tag = "", content = "") {
+  const values = await showDialog({
+    title,
+    fields: [
+      { label: "Tag", value: tag },
+      { label: "Content", value: content },
+    ],
+  });
+  return values && { tag: values[0], content: values[1] };
 }
 
-function addProperty(card) {
-  const values = askProperty();
+async function addProperty(card) {
+  const values = await askProperty("New property");
   if (!values) return;
   card.properties.push({ id: uid("p"), ...values });
   changed();
 }
 
-function editProperty(prop) {
-  const values = askProperty(prop.tag, prop.content);
+async function editProperty(prop) {
+  const values = await askProperty("Edit property", prop.tag, prop.content);
   if (!values) return;
   Object.assign(prop, values);
   changed();
@@ -350,7 +392,7 @@ viewport.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
+  if (event.key !== "Escape" || $("dialog").open) return;
   if (linkSource) cancelLink();
   else if (selectedLinkId) selectLink(null);
 });

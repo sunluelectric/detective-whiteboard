@@ -44,3 +44,10 @@ Development phases for the first version. The design is in `README.md`. Each pha
 - [x] Fix stale docs: Phase 1 port note, `pyproject.toml` description.
 - [x] Board grows to fit cards dragged past the right or bottom edge (minimum 4000 x 3000).
 - [x] Load drops links whose card or property does not exist, instead of failing to render.
+
+## Phase 7: In-page dialogs
+
+- [x] One `<dialog>` in `index.html`, styled like the cards, with a title, optional message, labeled text fields, and OK / Cancel buttons. Enter confirms, Escape cancels, blank fields are rejected.
+- [x] `showDialog()` in `app.js` returns a promise; `prompt()`, `confirm()` and `alert()` are replaced by it. Property add and edit ask for Tag and Content in one dialog.
+- [x] Escape in the dialog does not also cancel link mode or deselect a link.
+- [x] Update `README.md`.

@@ -30,7 +30,7 @@ All whiteboard state lives in the browser. Saving and loading go through the bro
 - Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board content is at least 4000 x 3000 and grows to keep a margin past the farthest card.
 - Zoom: a CSS `transform: scale(zoom)` on the content element scales cards and links together. Pointer positions are divided by `zoom` to convert them to board coordinates.
 - Dragging: the card header is the drag handle. Pointer events update the card's `x` and `y`, and links are redrawn while the card moves.
-- Input: names, tags and contents are collected with simple dialogs (`prompt()` at first).
+- Dialogs: one in-page `<dialog>`, styled like the cards, is used for all input, confirmations and error messages. `showDialog()` fills in a title, an optional message and labeled text fields, and returns a promise with the trimmed values, or `null` on Cancel. Enter confirms, Escape cancels, and blank fields are rejected. The browser's own prompt is used only for the leave-page warning.
 
 ## Data Model and File Format
 
@@ -95,7 +95,7 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 ### Properties
 
 - Shown as `<Tag>: <Content>`, with up, down, edit, delete and link buttons on each row.
-- Adding a property asks for both tag and content.
+- Adding a property asks for tag and content in one dialog.
 - Edit property: asks for tag and content again, pre-filled with the current values. The property keeps its ID, so its links stay attached.
 - Delete property: removes the property and every link attached to it.
 
