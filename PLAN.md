@@ -102,7 +102,7 @@ The assistant is an OpenAI model with the board operations as tools. The board l
 - [x] The chat is part of the board: `chat` in the JSON file holds the messages in Chat Completions format. Older files without `chat` load with an empty chat. Chat changes mark the board as unsaved.
 - [x] Chat panel in the bottom right corner, opened and closed with an Assistant toolbar button: messages, a short line per tool action, a text box (Enter sends, Shift+Enter for a new line), Send, and Clear (with confirmation). Create and Load are disabled while the assistant is working.
 - [x] Check the tool loop with a stubbed model in headless Chrome and the server with a fake OpenAI endpoint.
-- [ ] Check by hand with a real key.
+- [x] Check by hand with a real key (gpt-6-luna and gpt-6.2-astra).
 - [x] Update `README.md` and `CLAUDE.md`.
 
 ## Phase 13: Model choice
