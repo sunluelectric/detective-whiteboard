@@ -155,3 +155,10 @@ The user keeps working while the assistant waits for the model. Each request alr
 - [x] A Link tab in the search box, sharing the keyword field with Global and Card. Matching links get a yellow halo along the line and a yellow message box, and count towards the number of matches.
 - [x] The assistant's `search` tool describes the new mode and returns link IDs.
 - [x] Check in headless Chrome; update `README.md`.
+
+## Phase 19: Stale browser cache
+
+The server sent no `Cache-Control` header, so browsers could keep using an old `index.html`, `app.js` and `style.css` after an update (no resize handle, no message field).
+
+- [x] Every response carries `Cache-Control: no-cache`, so the browser revalidates each file (a cheap 304 when unchanged).
+- [x] The search box and link panel sit above the chat panel; on short windows the chat panel covered the link panel.

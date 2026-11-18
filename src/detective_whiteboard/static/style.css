@@ -144,8 +144,10 @@ body.linking .card, body.linking .property { cursor: crosshair; }
 .link-source { outline: 2px solid #1e6fd9; }
 body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e6fd9; }
 
+/* The search box and link panel stay on top of the chat panel when the window is short. */
 #side {
   position: fixed;
+  z-index: 2;
   right: 16px;
   top: 56px;
   display: flex;

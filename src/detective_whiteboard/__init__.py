@@ -84,6 +84,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
+    def end_headers(self):
+        # Without it browsers may keep running old copies of the page and scripts after an update.
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def send_json(self, status: int, reply: dict) -> None:
         data = json.dumps(reply).encode()
         self.send_response(status)
