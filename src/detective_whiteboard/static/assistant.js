@@ -35,6 +35,20 @@ const assistant = (() => {
   const endpointLabel = (board, { card, property }) =>
     property ? propertyLabel(board, card, property) : `card "${ops.getCard(board, card).name}"`;
 
+  // The { tag, content } list for add_card from its template, contents and skip arguments.
+  function templateProperties(templates, { template, contents = {}, skip = [] }) {
+    if (template === undefined) {
+      if (Object.keys(contents).length || skip.length) throw new Error("contents and skip need a template");
+      return [];
+    }
+    const tags = templates[template];
+    if (!tags) throw new Error(`No template "${template}". Templates: ${Object.keys(templates).join(", ") || "none"}`);
+    for (const tag of [...Object.keys(contents), ...skip]) {
+      if (!tags.includes(tag)) throw new Error(`Template "${template}" has no field "${tag}". Fields: ${tags.join(", ")}`);
+    }
+    return tags.filter((tag) => !skip.includes(tag)).map((tag) => ({ tag, content: contents[tag] ?? "" }));
+  }
+
   const BLOCKED =
     "Blocked: the user changed the whiteboard while you were working, so you cannot change it until the user " +
     "sends a new message. Do not retry. Answer from the current whiteboard and say which changes you did not make.";
@@ -54,12 +68,29 @@ const assistant = (() => {
     },
     add_card: {
       description:
-        "Add a card with a name, no picture and no properties. Returns the new card with its ID. " +
+        "Add a card with a name and no picture. Without a template it has no properties; with a template it " +
+        "gets one property per template field, in order, except the fields in skip. Contents fills in fields; " +
+        "the others are left empty. Returns the new card with its ID and property IDs. " +
         "Leave out x and y to place it in the part of the board the user is looking at.",
-      parameters: { name: string("Card name"), x: number("Left edge"), y: number("Top edge") },
+      parameters: {
+        name: string("Card name"),
+        x: number("Left edge"),
+        y: number("Top edge"),
+        template: string("Name of a card template; leave out for a card without properties"),
+        contents: {
+          type: "object",
+          description: "Content for template fields, by tag, for example {\"Age\": \"42\"}",
+          additionalProperties: { type: "string" },
+        },
+        skip: { type: "array", items: { type: "string" }, description: "Tags of template fields to leave out" },
+      },
       required: ["name"],
       run: (board, a, hooks) =>
-        ops.addCard(board, { name: a.name, ...(a.x === undefined || a.y === undefined ? hooks.cardPosition() : a) }),
+        ops.addCard(board, {
+          name: a.name,
+          properties: templateProperties(hooks.templates, a),
+          ...(a.x === undefined || a.y === undefined ? hooks.cardPosition() : { x: a.x, y: a.y }),
+        }),
     },
     rename_card: {
       description: "Rename a card.",
@@ -88,7 +119,7 @@ const assistant = (() => {
     },
     add_property: {
       description: "Add a property (tag and content) at the bottom of a card. Returns the new property with its ID.",
-      parameters: { card: string("Card ID"), tag: string("Tag, for example Age"), content: string("Content") },
+      parameters: { card: string("Card ID"), tag: string("Tag, for example Age"), content: string("Content; may be empty") },
       required: ["card", "tag", "content"],
       run: (board, a) => ops.addProperty(board, a.card, a),
     },
@@ -98,7 +129,7 @@ const assistant = (() => {
         card: string("Card ID"),
         property: string("Property ID"),
         tag: string("New tag; leave out to keep it"),
-        content: string("New content; leave out to keep it"),
+        content: string("New content, may be empty; leave out to keep it"),
       },
       required: ["card", "property"],
       run: (board, a) => ops.editProperty(board, a.card, a.property, a),
@@ -187,7 +218,8 @@ const assistant = (() => {
     };
   }
 
-  function systemPrompt(board) {
+  // templates is { templates: { name: [tag] }, error } from /api/templates.
+  function systemPrompt(board, templates) {
     return [
       "You are the assistant in a detective whiteboard app. The user organizes a case on a whiteboard of cards",
       "(people, places, objects, events). Each card has a name, an optional picture and an ordered list of",
@@ -200,18 +232,22 @@ const assistant = (() => {
       "each row about 300 below the previous one.",
       "Links can carry a short message shown on the line. Keep replies short and plain text.",
       "",
+      "Card templates (name: field tags), for add_card. A property's content may be empty, so a template field",
+      "the user gives no content for is added empty unless they ask to leave it out:",
+      templates.error ? `Unavailable: ${templates.error}` : JSON.stringify(templates.templates),
+      "",
       "Current whiteboard (JSON):",
       JSON.stringify(boardState(board)),
     ].join("\n");
   }
 
-  async function complete(board, model) {
+  async function complete(board, model, templates) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        instructions: systemPrompt(board),
+        instructions: systemPrompt(board, templates),
         input: board.chat.filter((item) => item.type !== "notice"),
         tools: TOOL_SCHEMAS,
       }),
@@ -248,14 +284,17 @@ const assistant = (() => {
   // ends with a notice item, which is shown in the chat but not sent to the model.
   // hooks: onUpdate() after every change to the board or chat, confirm(question) resolving to
   // true or false, cardPosition() returning { x, y } for a new card, stale() returning true once the
-  // user changed the whiteboard since the message was sent, and model (empty for the server's default).
+  // user changed the whiteboard since the message was sent, model (empty for the server's default), and
+  // loadTemplates() resolving to the card templates, which are read once per turn.
   async function send(board, text, hooks) {
     board.chat.push({ role: "user", content: text });
     hooks.onUpdate();
     let blocked = false;
     try {
+      const loaded = await hooks.loadTemplates();
+      hooks = { ...hooks, templates: loaded.templates };
       for (let step = 0; step < MAX_STEPS; step++) {
-        const output = await complete(board, hooks.model);
+        const output = await complete(board, hooks.model, loaded);
         board.chat.push(...output);
         hooks.onUpdate();
         const calls = output.filter((item) => item.type === "function_call");

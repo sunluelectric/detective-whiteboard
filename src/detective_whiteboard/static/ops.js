@@ -89,7 +89,8 @@ const ops = (() => {
 
   // ---------- Cards ----------
 
-  function addCard(board, { name, x = 0, y = 0 }) {
+  // properties is a list of { tag, content }, for example the fields of a card template.
+  function addCard(board, { name, x = 0, y = 0, properties = [] }) {
     const card = {
       id: uid("c"),
       name: text(name, "Card name"),
@@ -98,7 +99,7 @@ const ops = (() => {
       width: CARD_SIZE.width,
       height: null,
       picture: null,
-      properties: [],
+      properties: properties.map(newProperty),
     };
     board.cards.push(card);
     return card;
@@ -135,9 +136,14 @@ const ops = (() => {
 
   // ---------- Properties ----------
 
+  // The tag must not be blank; the content may be empty.
+  function newProperty({ tag, content = "" }) {
+    return { id: uid("p"), tag: text(tag, "Tag"), content: String(content).trim() };
+  }
+
   function addProperty(board, cardId, { tag, content }) {
     const card = getCard(board, cardId);
-    const prop = { id: uid("p"), tag: text(tag, "Tag"), content: text(content, "Content") };
+    const prop = newProperty({ tag, content });
     card.properties.push(prop);
     return prop;
   }
@@ -147,7 +153,7 @@ const ops = (() => {
     const prop = getProperty(board, cardId, propertyId);
     const changes = {};
     if (tag !== undefined) changes.tag = text(tag, "Tag");
-    if (content !== undefined) changes.content = text(content, "Content");
+    if (content !== undefined) changes.content = String(content).trim();
     Object.assign(prop, changes);
   }
 

@@ -11,6 +11,7 @@ This project is jointly developed by human developer and vibe coding agent.
 ## Current State and Commands
 
 - First version implemented as described in `README.md`: `src/detective_whiteboard/__init__.py` (static server and `/api/chat` proxy to OpenAI) and `src/detective_whiteboard/static/` (`index.html`, `style.css`, `ops.js` for all board operations, `assistant.js` for the AI assistant, `app.js` for the user interface). Progress is tracked in `PLAN.md`.
+- Card templates are in `./card_template.json`.
 - Run the app: `uv run detective-whiteboard` (options `--host`, `--port`; `--host 0.0.0.0` for LAN access). The assistant needs `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`) in `./.env`.
 - Add a dependency: `uv add <package>` (dev-only: `uv add --dev <package>`)
 - No test framework or linter. Check JavaScript syntax with `node --check` on the `.js` files in `src/detective_whiteboard/static/`, and test manually in the browser.
@@ -41,6 +42,7 @@ Once a whiteboard is created or loaded, the following features are enabled.
 - The user can zoom the entire whiteboard in and out, with cards and links scaled together.
 - The whiteboard has no edges and feels infinite. The user pans it by dragging empty space with the right mouse button.
 - It has a create card button that allows the user to create a new card. The user needs to provide a name to the card. Upon creation, the card has an empty picture, and an empty list of properties. The name of the card is displayed on the top of the card.
+- Card templates are not hardcoded: `card_template.json` in the project folder lists them (a name and its field tags), and it is read each time a card is created. The create card box asks for the name and a template from a dropdown starting at Empty. A non-empty template shows its fields, each with a checkbox (checked by default) and a content input; checked fields are added as properties even when left empty, unchecked ones are left out. Property content may be empty everywhere. The assistant can also create cards from templates.
 - The card has an update picture button, that allows the user to upload a picture from local machine. A browsing pop up should appear and the user can select a picture (PNG or JPG) to be loaded, and then the picture will be automatically sized properly and displayed on the card.
 - The user can drag and move the card in the UI.
 - The user can select several cards by dragging a rectangle over empty space with the left mouse button (cards fully inside are selected), add or remove a card with Ctrl or Shift + click on its header, and move the selected cards together. Only cards are selected, not links.

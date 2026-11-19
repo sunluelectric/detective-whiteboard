@@ -210,7 +210,12 @@ body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e
 #dialog p { margin: 10px; }
 #dialog-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; margin: 10px; }
 #dialog-fields:empty { display: none; }
-#dialog-fields input { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; }
+#dialog-fields input, #dialog-fields select { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; }
+/* Template field rows join the dialog's two-column grid: checkbox and tag, then the content input. */
+.template-fields { display: contents; }
+.template-fields label { display: flex; align-items: center; gap: 4px; }
+#dialog-fields .template-fields input[type="checkbox"] { margin: 0; padding: 0; }
+#dialog-fields input:disabled { background: #eee; }
 /* OK comes first in the markup so Enter submits it; Cancel is shown first. */
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid #e3e0d6; }
 #dialog-cancel { order: -1; }

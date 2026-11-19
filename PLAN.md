@@ -177,3 +177,15 @@ Branch `infinite-board`.
 - [x] Clicking empty space or Escape clears the selection. The selection is a view setting and is not saved.
 - [x] Assistant system prompt says positions may be negative.
 - [x] Check in headless Chrome; update `README.md` and `CLAUDE.md`.
+
+## Phase 21: Card templates
+
+Branch `card-templates`.
+
+- [x] `card_template.json` in the project folder maps template names to field tags, in order: `{"Person": ["Age", "Career"], ...}`. An example file is committed.
+- [x] Server: `GET /api/templates` reads the file on every request (found like `.env`) and returns `{templates}`, or `{templates: {}, error}` when it is broken. A missing file gives no templates.
+- [x] Properties may have empty content everywhere (`ops.addProperty`, `ops.editProperty`, the property dialog, the assistant). Tags stay required.
+- [x] `ops.addCard` takes an optional `properties` list of `{tag, content}`.
+- [x] Create Card dialog: Name, a Template dropdown starting at Empty, and for a chosen template one row per field with a checkbox (checked by default), the tag and a content input. Checked fields become properties, blank ones with empty content. A broken file shows its error in the dialog.
+- [x] Assistant: each turn loads the templates into the system prompt. `add_card` takes `template`, `contents` (tag to content; others stay empty) and `skip` (tags to leave out).
+- [x] Check in headless Chrome; update `README.md` and `CLAUDE.md`.

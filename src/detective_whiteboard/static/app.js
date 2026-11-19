@@ -60,39 +60,50 @@ function iconButton(text, title, onclick) {
 
 let dialogQueue = Promise.resolve();
 
-// Resolves to the trimmed field values on OK, or null on Cancel / Escape. A dialog waits until the open
-// one closes, so an assistant confirmation never replaces a dialog the user is filling in.
+// Resolves to collect() on OK, or null on Cancel / Escape. body is put in a two-column grid of labels and
+// inputs. A dialog waits until the open one closes, so an assistant confirmation never replaces a dialog
+// the user is filling in.
 function showDialog(options) {
   dialogQueue = dialogQueue.then(() => openDialog(options));
   return dialogQueue;
 }
 
-function openDialog({ title, message = "", fields = [], ok = "OK", cancel = "Cancel" }) {
+function openDialog({ title, message = "", body = [], collect = () => true, ok = "OK", cancel = "Cancel" }) {
   const dialog = $("dialog");
-  const inputs = fields.map(({ value = "" }) =>
-    el("input", { value, required: "", pattern: ".*\\S.*", title: "Must not be blank", autocomplete: "off" }),
-  );
   $("dialog-title").textContent = title;
   $("dialog-message").textContent = message;
   $("dialog-message").hidden = !message;
-  $("dialog-fields").replaceChildren(...fields.flatMap(({ label }, i) => [el("label", {}, label), inputs[i]]));
+  $("dialog-fields").replaceChildren(...body);
   $("dialog-ok").textContent = ok;
   $("dialog-cancel").textContent = cancel;
   $("dialog-cancel").hidden = !cancel;
   dialog.returnValue = "";
   dialog.showModal();
-  inputs[0]?.select();
+  $("dialog-fields").querySelector("input")?.select();
   return new Promise((resolve) => {
-    dialog.addEventListener(
-      "close",
-      () => resolve(dialog.returnValue === "ok" ? inputs.map((input) => input.value.trim()) : null),
-      { once: true },
-    );
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok" ? collect() : null), { once: true });
+  });
+}
+
+// Blank input is rejected unless the field is optional.
+function textInput(value = "", optional = false) {
+  const input = el("input", { value, autocomplete: "off" });
+  if (!optional) Object.assign(input, { required: true, pattern: ".*\\S.*", title: "Must not be blank" });
+  return input;
+}
+
+// fields: [{ label, value, optional }]. Resolves to the trimmed values.
+function askFields(title, fields) {
+  const inputs = fields.map(({ value, optional }) => textInput(value, optional));
+  return showDialog({
+    title,
+    body: fields.flatMap(({ label }, i) => [el("label", {}, label), inputs[i]]),
+    collect: () => inputs.map((input) => input.value.trim()),
   });
 }
 
 async function askText(title, label, value) {
-  return (await showDialog({ title, fields: [{ label, value }] }))?.[0];
+  return (await askFields(title, [{ label, value }]))?.[0];
 }
 
 async function askConfirm(title, message, ok) {
@@ -343,10 +354,53 @@ function clearSelection() {
 // ---------- Cards ----------
 
 async function addCard() {
-  const name = await askText("New card", "Name");
-  if (!name) return;
-  ops.addCard(board, { name, ...newCardPosition() });
+  const { templates, error } = await loadTemplates();
+  const values = await askNewCard(templates, error);
+  if (!values) return;
+  ops.addCard(board, { ...values, ...newCardPosition() });
   changed();
+}
+
+// The card templates from card_template.json, read again every time: { templates: { name: [tag] }, error }.
+async function loadTemplates() {
+  try {
+    return await (await fetch("/api/templates")).json();
+  } catch (err) {
+    return { templates: {}, error: `Could not load the card templates: ${err.message}` };
+  }
+}
+
+// Name, a template that starts at Empty, and for a chosen template one row per field: a checkbox (unchecked
+// leaves the field out), the tag and the content, which may be blank. Resolves to { name, properties }.
+function askNewCard(templates, error) {
+  const name = textInput();
+  const select = el(
+    "select",
+    {},
+    el("option", { value: "" }, "Empty"),
+    ...Object.keys(templates).map((template) => el("option", { value: template }, template)),
+  );
+  const rows = el("div", { class: "template-fields" });
+  let fields = [];
+  select.addEventListener("change", () => {
+    fields = (templates[select.value] ?? []).map((tag) => {
+      const check = el("input", { type: "checkbox", title: "Include this field" });
+      check.checked = true;
+      const input = textInput("", true);
+      check.addEventListener("change", () => (input.disabled = !check.checked));
+      return { tag, check, input };
+    });
+    rows.replaceChildren(...fields.flatMap(({ tag, check, input }) => [el("label", {}, check, tag), input]));
+  });
+  return showDialog({
+    title: "New card",
+    message: error ?? "",
+    body: [el("label", {}, "Name"), name, el("label", {}, "Template"), select, rows],
+    collect: () => ({
+      name: name.value.trim(),
+      properties: fields.filter((f) => f.check.checked).map((f) => ({ tag: f.tag, content: f.input.value.trim() })),
+    }),
+  });
 }
 
 // Near the top left of the visible area, shifted a little for each card so new cards do not stack exactly.
@@ -473,13 +527,10 @@ function sizeCard(cardEl, card) {
 // ---------- Properties ----------
 
 async function askProperty(title, tag = "", content = "") {
-  const values = await showDialog({
-    title,
-    fields: [
-      { label: "Tag", value: tag },
-      { label: "Content", value: content },
-    ],
-  });
+  const values = await askFields(title, [
+    { label: "Tag", value: tag },
+    { label: "Content", value: content, optional: true },
+  ]);
   return values && { tag: values[0], content: values[1] };
 }
 
@@ -661,6 +712,7 @@ async function sendChat() {
       cardPosition: newCardPosition,
       stale: () => board !== turnBoard || edits !== start,
       model: $("chat-model").value,
+      loadTemplates,
     });
   } catch (err) {
     error = err.message;

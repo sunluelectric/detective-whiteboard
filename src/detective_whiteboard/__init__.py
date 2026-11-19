@@ -17,6 +17,7 @@ DEFAULT_MODEL = "gpt-6-luna"
 # The choices in the chat panel, each with the reasoning effort to send (None leaves it to the model's
 # default; gpt-6.2-astra does not accept "none").
 MODELS = {"gpt-6-luna": "none", "gpt-6.2-astra": None}
+TEMPLATE_FILE = "card_template.json"
 
 
 def lan_address() -> str:
@@ -37,6 +38,23 @@ def models() -> dict:
     """The selectable models and the default, which is OPENAI_MODEL when set."""
     default = os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
     return {"models": list(MODELS) if default in MODELS else [default, *MODELS], "default": default}
+
+
+def templates() -> dict:
+    """The card templates in card_template.json, found like .env and read on every request so edits apply at once."""
+    path = find_dotenv(TEMPLATE_FILE, usecwd=True)
+    if not path:
+        return {"templates": {}}
+    try:
+        data = json.loads(Path(path).read_text())
+        valid = isinstance(data, dict) and all(
+            isinstance(tags, list) and all(isinstance(tag, str) and tag.strip() for tag in tags) for tags in data.values()
+        )
+        if not valid:
+            raise ValueError('expected {"Template name": ["Tag", ...], ...}')
+    except (OSError, ValueError) as err:
+        return {"templates": {}, "error": f"Could not read {path}: {err}"}
+    return {"templates": data}
 
 
 def chat(body: dict) -> tuple[int, dict]:
@@ -100,6 +118,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/models":
             self.send_json(200, models())
+        elif self.path == "/api/templates":
+            self.send_json(200, templates())
         else:
             super().do_GET()
 
