@@ -162,3 +162,18 @@ The server sent no `Cache-Control` header, so browsers could keep using an old `
 
 - [x] Every response carries `Cache-Control: no-cache`, so the browser revalidates each file (a cheap 304 when unchanged).
 - [x] The search box and link panel sit above the chat panel; on short windows the chat panel covered the link panel.
+
+## Phase 20: Infinite board, panning and multi-select
+
+Branch `infinite-board`.
+
+- [x] Infinite board: no scrollbars and no edges. The view is an offset plus the zoom, applied as one CSS transform on the content element. Card positions may be negative (`ops` no longer clamps them to 0). The links layer is sized to the cards' bounds instead of the board growing.
+- [x] Mouse wheel scrolls up and down, Shift + wheel sideways, Ctrl + wheel zooms at the cursor. A dot grid moves with the board so panning is visible on empty space.
+- [x] Right-drag on empty board space pans; the point under the cursor stays under it. The browser menu is suppressed on empty space. Cards and links do not start a pan.
+- [x] New boards start at the origin; a loaded board starts with its top-left card in view. The view is not saved.
+- [x] Left-drag on empty space draws a selection rectangle; cards fully inside it are selected (replacing the previous selection). Links are not selected.
+- [x] Ctrl or Shift + click on a card header adds the card to the selection or removes it.
+- [x] Dragging the header of a selected card moves all selected cards. Dragging an unselected card clears the selection and moves that card.
+- [x] Clicking empty space or Escape clears the selection. The selection is a view setting and is not saved.
+- [x] Assistant system prompt says positions may be negative.
+- [x] Check in headless Chrome; update `README.md` and `CLAUDE.md`.

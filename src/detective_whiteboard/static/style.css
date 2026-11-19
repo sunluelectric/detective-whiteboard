@@ -24,24 +24,30 @@ body { display: flex; flex-direction: column; }
 
 button { cursor: pointer; }
 
+/* The board has no edges: app.js moves and scales #content and shifts the dot grid with it. */
 #viewport {
   position: relative;
   flex: 1;
-  overflow: auto;
-  background: #f4f1e8;
+  overflow: hidden;
+  background-color: #f4f1e8;
+  background-image: radial-gradient(circle, #d3cab0 1px, transparent 1.5px);
 }
+body.panning, body.panning * { cursor: grabbing !important; }
 
 #content {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   transform-origin: 0 0;
 }
 
-#links {
+#links { position: absolute; overflow: visible; }
+
+#marquee {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+  border: 1px dashed #1e6fd9;
+  background: rgba(30, 111, 217, 0.08);
+  pointer-events: none;
 }
 
 #links .hit { stroke: transparent; stroke-width: 12; fill: none; cursor: pointer; pointer-events: stroke; }
@@ -143,6 +149,7 @@ button { cursor: pointer; }
 body.linking .card, body.linking .property { cursor: crosshair; }
 .link-source { outline: 2px solid #1e6fd9; }
 body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e6fd9; }
+.card.selected { outline: 2px solid #1e6fd9; outline-offset: 3px; }
 
 /* The search box and link panel stay on top of the chat panel when the window is short. */
 #side {

@@ -39,9 +39,11 @@ Once a whiteboard is created or loaded, the following features are enabled.
 
 - It has a rename button that allows the user to rename the whiteboard.
 - The user can zoom the entire whiteboard in and out, with cards and links scaled together.
+- The whiteboard has no edges and feels infinite. The user pans it by dragging empty space with the right mouse button.
 - It has a create card button that allows the user to create a new card. The user needs to provide a name to the card. Upon creation, the card has an empty picture, and an empty list of properties. The name of the card is displayed on the top of the card.
 - The card has an update picture button, that allows the user to upload a picture from local machine. A browsing pop up should appear and the user can select a picture (PNG or JPG) to be loaded, and then the picture will be automatically sized properly and displayed on the card.
 - The user can drag and move the card in the UI.
+- The user can select several cards by dragging a rectangle over empty space with the left mouse button (cards fully inside are selected), add or remove a card with Ctrl or Shift + click on its header, and move the selected cards together. Only cards are selected, not links.
 - On each card, there is a add property button that allows the user to add a property. Each property has two fields, "Tag" and "Content". The user needs to provide the tag and the content of a property when adding one. The property will then be displayed down the picture of the card, in the form of "<Tag>: <Content>".
 - On each card, there is a rename card button that allows the user to rename the card.
 - On each property, there is an edit property button that allows the user to change its tag and content.

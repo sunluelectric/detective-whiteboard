@@ -44,9 +44,9 @@ All whiteboard state lives in the browser. Saving and loading go through the bro
   - Search: `search(board, {mode, keyword, tag, content})` returns `{cards: [cardId], properties: [{card, property}], links: [linkId]}`.
 - Assistant (`assistant.js`): one tool per operation (except creating, loading, pictures and chat), a system prompt with the current board (pictures left out), and `assistant.send(board, text, hooks)`, which calls `/api/chat` and runs tool calls until the model answers in text. A tool error is returned to the model as `{"error": ...}`. Every tool except `search` changes the board and is blocked once `hooks.stale()` reports that the user changed the board during the turn. It does not touch the page; `hooks` let the user interface redraw, confirm deletes, place new cards and report user edits.
 - User interface (`app.js`): dialogs, file handling, dragging, zoom and rendering. Every user action makes its change through `ops` and then calls `render()`.
-- Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a scrollable viewport. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board content is at least 4000 x 3000 and grows to keep a margin past the farthest card.
-- Zoom: a CSS `transform: scale(zoom)` on the content element scales cards and links together. Pointer positions are divided by `zoom` to convert them to board coordinates.
-- Dragging: the card header is the drag handle. Pointer events update the card's `x` and `y`, and links are redrawn while the card moves.
+- Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a viewport without scrollbars. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board has no edges: card positions may be negative, and the SVG layer is sized to cover the cards.
+- View: `view` is the board point at the top left of the viewport. One CSS transform on the content element, `translate(-view * zoom) scale(zoom)`, pans and zooms cards and links together, and the background dot grid is shifted and scaled to match. Pointer distances are divided by `zoom` to convert them to board coordinates.
+- Dragging: the card header is the drag handle. Pointer events update the card's `x` and `y` (of every selected card when the dragged card is selected), and links are redrawn while the cards move.
 - Dialogs: one in-page `<dialog>`, styled like the cards, is used for all input, confirmations and error messages. A dialog requested while another is open waits until that one closes. `showDialog()` fills in a title, an optional message and labeled text fields, and returns a promise with the trimmed values, or `null` on Cancel. Enter confirms, Escape cancels, and blank fields are rejected. The browser's own prompt is used only for the leave-page warning.
 
 ## Data Model and File Format
@@ -113,7 +113,9 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 - Rename: changes `name`, which is used for the next save.
 - Create and Load ask for confirmation when the current board has unsaved changes.
 - Every button except Create and Load is disabled until a board is open.
-- Zoom: zoom in, zoom out and reset (100%) buttons, plus Ctrl + mouse wheel. Zoom ranges from 25% to 200%. It is a view setting and is not saved in the file.
+- Zoom: zoom in, zoom out and reset (100%) buttons, plus Ctrl + mouse wheel at the cursor. Zoom ranges from 25% to 200%.
+- Moving around: the board has no edges or scrollbars. Dragging empty board space with the right mouse button pans the board, keeping the point under the cursor in place; the browser menu does not open there. The mouse wheel scrolls up and down and Shift + wheel sideways; over the scrolling property list of a card with a fixed height, the wheel scrolls the list.
+- A new board starts at the origin, and a loaded board starts with its top-left card in view. Zoom and view position are view settings and are not saved in the file.
 
 ### Cards
 
@@ -123,6 +125,9 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 - Update picture: accepts PNG and JPG. The image is scaled down on a canvas to at most 480 wide, keeping its aspect ratio, before it is stored. This keeps the JSON file small while pictures stay sharp on wider cards.
 - Resize: dragging the handle in the bottom right corner sets the width and height (at least 160 x 80). A card with a fixed height shrinks its picture and scrolls its property list to fit; a link to a property scrolled out of view attaches to the card's edge. Double-clicking the handle makes the height fit the content again. A new card is 220 wide and fits its content.
 - Delete card: removes the card and every link attached to it or to its properties.
+- Select: dragging empty board space with the left mouse button draws a rectangle, and the cards fully inside it are selected (replacing the previous selection) and get a blue outline. Ctrl or Shift + click on a card header adds the card to the selection or removes it. Links are not selected.
+- Dragging the header of a selected card moves all selected cards together. Dragging an unselected card clears the selection and moves only that card.
+- Clicking empty board space or pressing Escape clears the selection. The selection is a view setting and is not saved in the file.
 
 ### Properties
 
@@ -144,7 +149,7 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
   - Message: saved on Enter or when the field loses focus. A non-empty message is shown at the middle of the line in the link's color, on a box that hides the line behind it. Clicking the message also selects the link. An empty field removes it.
   - Delete button.
 - A new link has no message.
-- Clicking empty board space deselects the link.
+- Clicking empty board space or pressing Escape deselects the link.
 
 ### Search
 

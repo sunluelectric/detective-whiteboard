@@ -3,15 +3,16 @@
 const PICTURE_WIDTH = 480; // pictures are scaled down to this width so wider cards still look sharp
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 2;
-const BOARD_MIN_WIDTH = 4000;
-const BOARD_MIN_HEIGHT = 3000;
-const BOARD_MARGIN = 400;
+const GRID = 24; // spacing of the background dots
+const LINKS_MARGIN = 20; // room around the cards for arrowheads on the links layer
 const DASHES = { solid: "", dashed: "8 5", dotted: "2 4" };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 let board = null;
 let dirty = false;
 let zoom = 1;
+let view = { x: 0, y: 0 }; // the board point at the top left of the viewport
+let selected = new Set(); // IDs of the selected cards
 let linkSource = null; // { card, property }
 let selectedLinkId = null;
 let pictureCardId = null;
@@ -115,8 +116,14 @@ function openBoard(newBoard) {
   chatError = null;
   selectedLinkId = null;
   linkSource = null;
-  setZoom(1);
-  viewport.scrollTo(0, 0);
+  selected.clear();
+  // A loaded board starts with its top-left card in view.
+  const cards = newBoard.cards;
+  zoom = 1;
+  setView(
+    cards.length ? Math.min(...cards.map((c) => c.x)) - 40 : 0,
+    cards.length ? Math.min(...cards.map((c) => c.y)) - 40 : 0,
+  );
   render();
 }
 
@@ -176,31 +183,162 @@ $("file-load").addEventListener("change", async (event) => {
   }
 });
 
-// ---------- Zoom ----------
+// ---------- View: pan and zoom ----------
 
+// The board has no edges: the view offset and the zoom are one transform on the content element.
+function applyView() {
+  const tx = -view.x * zoom;
+  const ty = -view.y * zoom;
+  content.style.transform = `translate(${tx}px, ${ty}px) scale(${zoom})`;
+  viewport.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`;
+  viewport.style.backgroundPosition = `${tx}px ${ty}px`;
+  $("btn-zoom-reset").textContent = `${Math.round(zoom * 100)}%`;
+}
+
+function setView(x, y) {
+  view = { x, y };
+  applyView();
+}
+
+// Keeps the board point under (clientX, clientY), or under the viewport center, in place.
 function setZoom(value, clientX, clientY) {
   const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100));
   const vr = viewport.getBoundingClientRect();
   const ax = clientX === undefined ? vr.width / 2 : clientX - vr.left;
   const ay = clientY === undefined ? vr.height / 2 : clientY - vr.top;
-  const bx = (viewport.scrollLeft + ax) / zoom;
-  const by = (viewport.scrollTop + ay) / zoom;
+  view.x += ax / zoom - ax / next;
+  view.y += ay / zoom - ay / next;
   zoom = next;
-  content.style.transform = `scale(${zoom})`;
-  viewport.scrollLeft = bx * zoom - ax;
-  viewport.scrollTop = by * zoom - ay;
-  $("btn-zoom-reset").textContent = `${Math.round(zoom * 100)}%`;
+  applyView();
 }
 
+// Wheel scrolls up and down, Shift + wheel sideways, Ctrl + wheel zooms. Over the scrolling property
+// list of a card with a fixed height, the wheel scrolls the list.
 viewport.addEventListener(
   "wheel",
   (event) => {
-    if (!board || !event.ctrlKey) return;
+    if (!board) return;
+    if (event.ctrlKey) {
+      event.preventDefault();
+      setZoom(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1), event.clientX, event.clientY);
+      return;
+    }
+    if (event.target.closest(".card.sized .properties")) return;
     event.preventDefault();
-    setZoom(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1), event.clientX, event.clientY);
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+    let dx = event.deltaX * unit;
+    let dy = event.deltaY * unit;
+    if (event.shiftKey && !dx) [dx, dy] = [dy, 0];
+    setView(view.x + dx / zoom, view.y + dy / zoom);
   },
   { passive: false },
 );
+
+// Follows the pointer from a pointerdown until it is released. onMove(dx, dy, e) gets the distance from
+// the start in screen pixels; onEnd(moved) runs on release.
+function followPointer(event, onMove, onEnd) {
+  event.preventDefault();
+  const target = event.currentTarget;
+  const startX = event.clientX;
+  const startY = event.clientY;
+  let moved = false;
+  target.setPointerCapture(event.pointerId);
+  const move = (e) => {
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!moved && !dx && !dy) return;
+    moved = true;
+    onMove(dx, dy, e);
+  };
+  const up = () => {
+    target.removeEventListener("pointermove", move);
+    target.removeEventListener("pointerup", up);
+    target.removeEventListener("pointercancel", up);
+    onEnd(moved);
+  };
+  target.addEventListener("pointermove", move);
+  target.addEventListener("pointerup", up);
+  target.addEventListener("pointercancel", up);
+}
+
+const onEmptySpace = (event) => !event.target.closest(".card, #links g");
+
+// Right-drag pans, left-drag draws a selection rectangle, and a left click clears the selection or
+// cancels link mode.
+viewport.addEventListener("pointerdown", (event) => {
+  if (!board || !onEmptySpace(event) || (event.button !== 0 && event.button !== 2)) return;
+  // Taking the pointer stops the browser from moving focus, so save a link message being edited first.
+  document.activeElement?.blur();
+  if (event.button === 2) startPan(event);
+  else if (linkSource) cancelLink();
+  else startMarquee(event);
+});
+
+viewport.addEventListener("contextmenu", (event) => {
+  if (board && onEmptySpace(event)) event.preventDefault();
+});
+
+function startPan(event) {
+  const start = { ...view };
+  document.body.classList.add("panning");
+  followPointer(
+    event,
+    (dx, dy) => setView(start.x - dx / zoom, start.y - dy / zoom),
+    () => document.body.classList.remove("panning"),
+  );
+}
+
+// ---------- Selection ----------
+
+function startMarquee(event) {
+  const box = $("marquee");
+  const vr = viewport.getBoundingClientRect();
+  let chosen = new Set();
+  followPointer(
+    event,
+    (dx, dy) => {
+      const left = Math.min(event.clientX, event.clientX + dx) - vr.left;
+      const top = Math.min(event.clientY, event.clientY + dy) - vr.top;
+      const width = Math.abs(dx);
+      const height = Math.abs(dy);
+      Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
+      box.hidden = false;
+      const x1 = view.x + left / zoom;
+      const y1 = view.y + top / zoom;
+      const x2 = x1 + width / zoom;
+      const y2 = y1 + height / zoom;
+      chosen = new Set();
+      for (const cardEl of cardsLayer.children) {
+        const inside =
+          cardEl.offsetLeft >= x1 &&
+          cardEl.offsetTop >= y1 &&
+          cardEl.offsetLeft + cardEl.offsetWidth <= x2 &&
+          cardEl.offsetTop + cardEl.offsetHeight <= y2;
+        if (inside) chosen.add(cardEl.dataset.id);
+        cardEl.classList.toggle("selected", inside);
+      }
+    },
+    (moved) => {
+      box.hidden = true;
+      if (moved) {
+        selected = chosen;
+        render();
+      } else deselectAll();
+    },
+  );
+}
+
+function deselectAll() {
+  selectedLinkId = null;
+  selected.clear();
+  render();
+}
+
+// Clears the selection without redrawing, so a card drag that has just started keeps going.
+function clearSelection() {
+  selected.clear();
+  for (const cardEl of cardsLayer.querySelectorAll(".card.selected")) cardEl.classList.remove("selected");
+}
 
 // ---------- Cards ----------
 
@@ -214,7 +352,7 @@ async function addCard() {
 // Near the top left of the visible area, shifted a little for each card so new cards do not stack exactly.
 function newCardPosition() {
   const offset = (board.cards.length % 8) * 24;
-  return { x: viewport.scrollLeft / zoom + 40 + offset, y: viewport.scrollTop / zoom + 40 + offset };
+  return { x: view.x + 40 + offset, y: view.y + 40 + offset };
 }
 
 async function renameCard(card) {
@@ -260,47 +398,53 @@ $("file-picture").addEventListener("change", async (event) => {
   changed();
 });
 
-// Follows the pointer from a pointerdown until it is released, calling onMove(dx, dy) with the distance in
-// board coordinates. Used for moving and resizing a card.
+// Moving or resizing a card: onMove(dx, dy) gets the distance in board coordinates.
 function trackPointer(event, card, onMove) {
-  event.preventDefault();
   dragging = true;
-  let moved = false;
-  const target = event.currentTarget;
-  const startX = event.clientX;
-  const startY = event.clientY;
-  target.setPointerCapture(event.pointerId);
-  const move = (e) => {
-    const dx = (e.clientX - startX) / zoom;
-    const dy = (e.clientY - startY) / zoom;
-    if (!findCard(card.id) || (!moved && !dx && !dy)) return; // the assistant may have deleted the card
-    if (!moved) edits++;
-    moved = true;
-    onMove(dx, dy);
-    renderLinks();
-  };
-  const up = () => {
-    target.removeEventListener("pointermove", move);
-    target.removeEventListener("pointerup", up);
-    target.removeEventListener("pointercancel", up);
-    dragging = false;
-    if (moved) dirty = true;
-    if (renderPending) render();
-    else renderToolbar();
-  };
-  target.addEventListener("pointermove", move);
-  target.addEventListener("pointerup", up);
-  target.addEventListener("pointercancel", up);
+  let counted = false;
+  followPointer(
+    event,
+    (dx, dy) => {
+      if (!findCard(card.id)) return; // the assistant may have deleted the card
+      if (!counted) edits++;
+      counted = true;
+      onMove(dx / zoom, dy / zoom);
+      renderLinks();
+    },
+    () => {
+      dragging = false;
+      if (counted) dirty = true;
+      if (renderPending) render();
+      else renderToolbar();
+    },
+  );
 }
 
+// Ctrl or Shift + click adds the card to the selection or removes it. Dragging a selected card moves
+// every selected card; dragging another card clears the selection.
 function startDrag(event, card, cardEl) {
   if (event.button !== 0 || event.target.closest("button") || linkSource) return;
-  const origX = card.x;
-  const origY = card.y;
+  if (event.ctrlKey || event.shiftKey) {
+    event.preventDefault();
+    if (!selected.delete(card.id)) selected.add(card.id);
+    cardEl.classList.toggle("selected", selected.has(card.id));
+    return;
+  }
+  if (!selected.has(card.id)) clearSelection();
+  const group = (selected.has(card.id) ? [...selected] : [card.id]).map((id) => ({
+    id,
+    el: id === card.id ? cardEl : cardsLayer.querySelector(`.card[data-id="${CSS.escape(id)}"]`),
+    x: findCard(id).x,
+    y: findCard(id).y,
+  }));
   trackPointer(event, card, (dx, dy) => {
-    ops.moveCard(board, card.id, origX + dx, origY + dy);
-    cardEl.style.left = `${card.x}px`;
-    cardEl.style.top = `${card.y}px`;
+    for (const item of group) {
+      const moving = findCard(item.id);
+      if (!moving) continue;
+      ops.moveCard(board, item.id, item.x + dx, item.y + dy);
+      item.el.style.left = `${moving.x}px`;
+      item.el.style.top = `${moving.y}px`;
+    }
   });
 }
 
@@ -428,16 +572,10 @@ $("link-message").addEventListener("keydown", (event) => {
   if (event.key === "Enter") event.target.blur();
 });
 
-viewport.addEventListener("click", (event) => {
-  if (event.target.closest(".card") || event.target.closest("#links g")) return;
-  if (linkSource) cancelLink();
-  else if (selectedLinkId) selectLink(null);
-});
-
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || $("dialog").open) return;
   if (linkSource) cancelLink();
-  else if (selectedLinkId) selectLink(null);
+  else if (selectedLinkId || selected.size) deselectAll();
 });
 
 window.addEventListener("beforeunload", (event) => {
@@ -628,6 +766,7 @@ function render() {
   }
   renderPending = false;
   if (linkSource && !endpointExists(linkSource)) linkSource = null;
+  for (const id of selected) if (!findCard(id)) selected.delete(id);
   runSearch();
   renderToolbar();
   renderCards();
@@ -656,6 +795,7 @@ function renderCard(card) {
   const cardEl = el("div", { class: "card", "data-id": card.id });
   if (isSource && !linkSource.property) cardEl.classList.add("link-source");
   if (found?.cards.has(card.id)) cardEl.classList.add("highlight");
+  if (selected.has(card.id)) cardEl.classList.add("selected");
   cardEl.style.left = `${card.x}px`;
   cardEl.style.top = `${card.y}px`;
   sizeCard(cardEl, card);
@@ -751,20 +891,19 @@ function svg(tag, attrs) {
   return node;
 }
 
-// The board keeps a minimum size and grows to leave a margin past the farthest card.
-function fitContent() {
-  let width = BOARD_MIN_WIDTH;
-  let height = BOARD_MIN_HEIGHT;
-  for (const cardEl of cardsLayer.children) {
-    width = Math.max(width, cardEl.offsetLeft + cardEl.offsetWidth + BOARD_MARGIN);
-    height = Math.max(height, cardEl.offsetTop + cardEl.offsetHeight + BOARD_MARGIN);
-  }
-  content.style.width = `${width}px`;
-  content.style.height = `${height}px`;
+// The board has no size, so the links layer is made to cover the cards, in board coordinates.
+function sizeLinksLayer() {
+  const cardEls = [...cardsLayer.children];
+  const x1 = Math.min(0, ...cardEls.map((c) => c.offsetLeft)) - LINKS_MARGIN;
+  const y1 = Math.min(0, ...cardEls.map((c) => c.offsetTop)) - LINKS_MARGIN;
+  const x2 = Math.max(0, ...cardEls.map((c) => c.offsetLeft + c.offsetWidth)) + LINKS_MARGIN;
+  const y2 = Math.max(0, ...cardEls.map((c) => c.offsetTop + c.offsetHeight)) + LINKS_MARGIN;
+  Object.assign(linksLayer.style, { left: `${x1}px`, top: `${y1}px`, width: `${x2 - x1}px`, height: `${y2 - y1}px` });
+  linksLayer.setAttribute("viewBox", `${x1} ${y1} ${x2 - x1} ${y2 - y1}`);
 }
 
 function renderLinks() {
-  fitContent();
+  sizeLinksLayer();
   linksLayer.replaceChildren();
   if (!board) return;
   const defs = svg("defs", {});
@@ -853,4 +992,5 @@ $("btn-zoom-in").addEventListener("click", () => setZoom(zoom + 0.1));
 $("btn-zoom-out").addEventListener("click", () => setZoom(zoom - 0.1));
 $("btn-zoom-reset").addEventListener("click", () => setZoom(1));
 
+applyView();
 render();

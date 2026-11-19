@@ -32,7 +32,7 @@ const ops = (() => {
   function coordinate(value, what) {
     const number = Number(value);
     if (!Number.isFinite(number)) throw new Error(`${what} must be a number`);
-    return Math.max(0, Math.round(number));
+    return Math.round(number);
   }
 
   function oneOf(value, allowed, what) {
