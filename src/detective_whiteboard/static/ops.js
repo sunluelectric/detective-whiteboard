@@ -69,6 +69,11 @@ const ops = (() => {
     if (typeof data?.name !== "string" || !Array.isArray(data.cards) || !Array.isArray(data.links)) {
       throw new Error("not a whiteboard file");
     }
+    for (const card of data.cards) {
+      card.properties ??= [];
+      card.x = coordinate(card.x, `Card ${card.name} x`);
+      card.y = coordinate(card.y, `Card ${card.name} y`);
+    }
     const exists = (endpoint) => {
       const card = data.cards.find((c) => c.id === endpoint.card);
       return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));

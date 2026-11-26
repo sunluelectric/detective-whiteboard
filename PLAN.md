@@ -4,7 +4,7 @@ Development phases for the first version. The design is in `README.md`. Each pha
 
 ## Tooling
 
-- No third-party dependencies. Backend uses the standard library; frontend is plain HTML, CSS and JavaScript.
+- Backend uses the standard library plus `python-dotenv` and `certifi`; frontend is plain HTML, CSS and JavaScript.
 - Testing is manual in the browser, plus `node --check src/detective_whiteboard/static/app.js` as a syntax check when Node is available. No test framework for now.
 
 ## Phase 1: Server and page skeleton
@@ -189,3 +189,22 @@ Branch `card-templates`.
 - [x] Create Card dialog: Name, a Template dropdown starting at Empty, and for a chosen template one row per field with a checkbox (checked by default), the tag and a content input. Checked fields become properties, blank ones with empty content. A broken file shows its error in the dialog.
 - [x] Assistant: each turn loads the templates into the system prompt. `add_card` takes `template`, `contents` (tag to content; others stay empty) and `skip` (tags to leave out).
 - [x] Check in headless Chrome; update `README.md` and `CLAUDE.md`.
+
+## Phase 22: Review fixes
+
+Branch `review-fixes-2`.
+
+- [x] Save clears the unsaved marker only if the board did not change while the file was written. The download fallback revokes its URL after a delay, so Firefox and Safari keep the file.
+- [x] Server: `POST /api/chat` requires `Content-Type: application/json` and, when an `Origin` header is sent, one matching `Host`, so other web pages cannot use the API key. Bad requests and non-JSON replies from OpenAI get a readable error instead of a dropped connection.
+- [x] Assistant: if a turn fails before the model answers, the user's message is taken out of the chat and put back in the text box.
+- [x] Widening a card that fits its content keeps it fitting; the height is fixed only once the drag moves vertically.
+- [x] Load fills in missing `properties` and rejects cards whose position is not a number.
+- [x] Ctrl + click on a card header does not open the context menu on macOS.
+- [x] Check with `node --check`, a short server test and headless Chrome; update `README.md`.
+
+## Phase 23: Certificates
+
+Branch `review-fixes-2`. Python from python.org has no CA certificates until its installer script is run, so requests to OpenAI failed with `CERTIFICATE_VERIFY_FAILED`.
+
+- [x] Add `certifi`; the server verifies OpenAI's certificate against its CA bundle.
+- [x] Check with the real app (`uv run detective-whiteboard`) and a luna turn; update `README.md`.

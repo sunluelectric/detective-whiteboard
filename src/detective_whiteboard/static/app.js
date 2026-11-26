@@ -153,6 +153,7 @@ async function renameBoard() {
 }
 
 async function saveBoard() {
+  const saving = board;
   const json = JSON.stringify(board, null, 2);
   const fileName = `${board.name}.json`;
   if (window.showSaveFilePicker) {
@@ -170,11 +171,16 @@ async function saveBoard() {
     }
   } else {
     // A download cannot report whether the user kept the file, so it counts as saved.
+    // Firefox and Safari drop the download if the URL is revoked before it starts.
     const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
-    el("a", { href: url, download: fileName }).click();
-    URL.revokeObjectURL(url);
+    const link = el("a", { href: url, download: fileName });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
-  dirty = false;
+  // The user or the assistant may have changed the board while the save dialog was open.
+  if (board === saving && JSON.stringify(board, null, 2) === json) dirty = false;
   renderToolbar();
 }
 
@@ -285,8 +291,9 @@ viewport.addEventListener("pointerdown", (event) => {
   else startMarquee(event);
 });
 
+// On macOS, Ctrl + click (which toggles a card's selection) also fires contextmenu.
 viewport.addEventListener("contextmenu", (event) => {
-  if (board && onEmptySpace(event)) event.preventDefault();
+  if (board && (onEmptySpace(event) || event.target.closest(".card-header"))) event.preventDefault();
 });
 
 function startPan(event) {
@@ -506,8 +513,11 @@ function startResize(event, card, cardEl) {
   if (event.button !== 0 || linkSource) return;
   const origWidth = cardEl.offsetWidth;
   const origHeight = cardEl.offsetHeight;
+  let fits = card.height === null;
   trackPointer(event, card, (dx, dy) => {
-    ops.resizeCard(board, card.id, origWidth + dx, origHeight + dy);
+    // A card that fits its content keeps fitting until the drag moves vertically.
+    fits &&= dy === 0;
+    ops.resizeCard(board, card.id, origWidth + dx, fits ? null : origHeight + dy);
     sizeCard(cardEl, card);
   });
 }
@@ -716,6 +726,7 @@ async function sendChat() {
     });
   } catch (err) {
     error = err.message;
+    if (err.unsent && !$("chat-input").value) $("chat-input").value = text;
   }
   chatBoard = null;
   if (board === turnBoard) chatError = error;

@@ -3,12 +3,15 @@ import http.server
 import json
 import os
 import socket
+import ssl
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 from pathlib import Path
 
+import certifi
 from dotenv import find_dotenv, load_dotenv
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -18,6 +21,8 @@ DEFAULT_MODEL = "gpt-6-luna"
 # default; gpt-6.2-astra does not accept "none").
 MODELS = {"gpt-6-luna": "none", "gpt-6.2-astra": None}
 TEMPLATE_FILE = "card_template.json"
+# Python from python.org has no CA certificates of its own until its installer script is run.
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 def lan_address() -> str:
@@ -70,6 +75,9 @@ def chat(body: dict) -> tuple[int, dict]:
     model = body.get("model") or choices["default"]
     if model not in choices["models"]:
         return 400, error(f"Model {model} is not one of: {', '.join(choices['models'])}")
+    missing = [field for field in ("instructions", "input", "tools") if field not in body]
+    if missing:
+        return 400, error(f"The request is missing {', '.join(missing)}")
     payload = {
         "model": model,
         "instructions": body["instructions"],
@@ -86,8 +94,9 @@ def chat(body: dict) -> tuple[int, dict]:
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
-            return 200, json.load(response)
+        with urllib.request.urlopen(request, timeout=300, context=SSL_CONTEXT) as response:
+            text = response.read().decode(errors="replace")
+        return 200, json.loads(text)
     except urllib.error.HTTPError as err:
         text = err.read().decode(errors="replace")
         try:
@@ -96,6 +105,8 @@ def chat(body: dict) -> tuple[int, dict]:
             return err.code, error(f"OpenAI returned {err.code}: {text[:300]}")
     except (urllib.error.URLError, TimeoutError) as err:
         return 502, error(f"Could not reach OpenAI: {getattr(err, 'reason', err)}")
+    except ValueError:
+        return 502, error(f"OpenAI returned a reply that is not JSON: {text[:300]}")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -127,7 +138,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path != "/api/chat":
             self.send_error(404)
             return
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        # Other web pages can send plain-text POSTs here without a CORS check, but not JSON ones, and a
+        # browser always sends their Origin. Either check alone stops them from spending the API key.
+        origin = self.headers.get("Origin")
+        if origin and urllib.parse.urlsplit(origin).netloc != self.headers.get("Host"):
+            self.send_json(403, error("Requests from other sites are not allowed."))
+            return
+        if self.headers.get_content_type() != "application/json":
+            self.send_json(415, error("The request must be JSON."))
+            return
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        except ValueError:
+            self.send_json(400, error("The request is not valid JSON."))
+            return
         self.send_json(*chat(body))
 
 

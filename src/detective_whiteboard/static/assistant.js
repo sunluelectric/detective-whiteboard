@@ -286,15 +286,20 @@ const assistant = (() => {
   // true or false, cardPosition() returning { x, y } for a new card, stale() returning true once the
   // user changed the whiteboard since the message was sent, model (empty for the server's default), and
   // loadTemplates() resolving to the card templates, which are read once per turn.
+  // If the turn fails before the model answers, the user's message is taken out of the chat again and the
+  // error gets unsent = true, so the text can go back into the text box.
   async function send(board, text, hooks) {
-    board.chat.push({ role: "user", content: text });
+    const message = { role: "user", content: text };
+    board.chat.push(message);
     hooks.onUpdate();
     let blocked = false;
+    let answered = false;
     try {
       const loaded = await hooks.loadTemplates();
       hooks = { ...hooks, templates: loaded.templates };
       for (let step = 0; step < MAX_STEPS; step++) {
         const output = await complete(board, hooks.model, loaded);
+        answered = true;
         board.chat.push(...output);
         hooks.onUpdate();
         const calls = output.filter((item) => item.type === "function_call");
@@ -307,6 +312,13 @@ const assistant = (() => {
         }
       }
       throw new Error(`The assistant stopped after ${MAX_STEPS} steps.`);
+    } catch (err) {
+      if (!answered && board.chat.includes(message)) {
+        board.chat.splice(board.chat.indexOf(message), 1);
+        hooks.onUpdate();
+        err.unsent = true;
+      }
+      throw err;
     } finally {
       if (blocked) {
         board.chat.push({ type: "notice", text: NOTICE });
