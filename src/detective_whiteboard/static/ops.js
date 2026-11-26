@@ -64,6 +64,12 @@ const ops = (() => {
     return { version: 1, name: text(name, "Whiteboard name"), cards: [], links: [], chat: [] };
   }
 
+  // Whether the card, or the property of the card, of an endpoint { card, property } exists.
+  function endpointExists(board, { card, property }) {
+    const found = board.cards.find((c) => c.id === card);
+    return !!found && (!property || found.properties.some((p) => p.id === property));
+  }
+
   // Checks parsed file data and drops links whose card or property does not exist.
   function loadBoard(data) {
     if (typeof data?.name !== "string" || !Array.isArray(data.cards) || !Array.isArray(data.links)) {
@@ -73,16 +79,10 @@ const ops = (() => {
       card.properties ??= [];
       card.x = coordinate(card.x, `Card ${card.name} x`);
       card.y = coordinate(card.y, `Card ${card.name} y`);
-    }
-    const exists = (endpoint) => {
-      const card = data.cards.find((c) => c.id === endpoint.card);
-      return card && (!endpoint.property || card.properties.some((p) => p.id === endpoint.property));
-    };
-    data.links = data.links.filter((l) => exists(l.source) && exists(l.target));
-    for (const card of data.cards) {
       card.width ??= CARD_SIZE.width;
       card.height ??= null;
     }
+    data.links = data.links.filter((l) => endpointExists(data, l.source) && endpointExists(data, l.target));
     for (const link of data.links) link.message ??= "";
     data.chat ??= [];
     return data;
@@ -147,19 +147,16 @@ const ops = (() => {
   }
 
   function addProperty(board, cardId, { tag, content }) {
-    const card = getCard(board, cardId);
     const prop = newProperty({ tag, content });
-    card.properties.push(prop);
+    getCard(board, cardId).properties.push(prop);
     return prop;
   }
 
   // Changes the tag, the content or both. The property keeps its ID, so its links stay attached.
   function editProperty(board, cardId, propertyId, { tag, content }) {
     const prop = getProperty(board, cardId, propertyId);
-    const changes = {};
-    if (tag !== undefined) changes.tag = text(tag, "Tag");
-    if (content !== undefined) changes.content = String(content).trim();
-    Object.assign(prop, changes);
+    if (tag !== undefined) prop.tag = text(tag, "Tag");
+    if (content !== undefined) prop.content = String(content).trim();
   }
 
   // Moves a property to a position in the card's list, counted from 0 at the top.
@@ -174,8 +171,8 @@ const ops = (() => {
 
   // Also deletes every link attached to the property.
   function deleteProperty(board, cardId, propertyId) {
-    const card = getCard(board, cardId);
     getProperty(board, cardId, propertyId);
+    const card = getCard(board, cardId);
     card.properties = card.properties.filter((p) => p.id !== propertyId);
     board.links = board.links.filter((l) => l.source.property !== propertyId && l.target.property !== propertyId);
   }
@@ -288,6 +285,7 @@ const ops = (() => {
     getCard,
     getProperty,
     getLink,
+    endpointExists,
     newBoard,
     loadBoard,
     renameBoard,

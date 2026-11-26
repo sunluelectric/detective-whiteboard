@@ -27,7 +27,6 @@ const assistant = (() => {
     },
     message: string("Text shown on the line; empty for none"),
   };
-  const linkChanges = (a) => ({ color: a.color, style: a.style, direction: a.direction, message: a.message });
   const propertyLabel = (board, cardId, propertyId) => {
     const prop = ops.getProperty(board, cardId, propertyId);
     return `"${prop.tag}: ${prop.content}" of card "${ops.getCard(board, cardId).name}"`;
@@ -153,13 +152,13 @@ const assistant = (() => {
         "target without a message unless color, style, direction or message say otherwise. Returns the new link with its ID.",
       parameters: { source: endpoint, target: endpoint, ...linkLook },
       required: ["source", "target"],
-      run: (board, a) => ops.addLink(board, a.source, a.target, linkChanges(a)),
+      run: (board, a) => ops.addLink(board, a.source, a.target, a),
     },
     update_link: {
       description: "Change the color, style, direction or message of a link.",
       parameters: { link: string("Link ID"), ...linkLook },
       required: ["link"],
-      run: (board, a) => ops.updateLink(board, a.link, linkChanges(a)),
+      run: (board, a) => ops.updateLink(board, a.link, a),
     },
     delete_link: {
       description: "Delete a link. The user is asked to confirm.",
@@ -204,16 +203,7 @@ const assistant = (() => {
     const colorNames = Object.fromEntries(Object.entries(ops.COLORS).map(([name, value]) => [value, name]));
     return {
       name: board.name,
-      cards: board.cards.map(({ id, name, x, y, width, height, picture, properties }) => ({
-        id,
-        name,
-        x,
-        y,
-        width,
-        height,
-        hasPicture: !!picture,
-        properties,
-      })),
+      cards: board.cards.map(({ picture, ...card }) => ({ ...card, hasPicture: !!picture })),
       links: board.links.map((l) => ({ ...l, color: colorNames[l.color] ?? l.color })),
     };
   }
@@ -228,7 +218,7 @@ const assistant = (() => {
       "Use the tools to change the whiteboard when the user asks, and answer questions about the case from it.",
       "Refer to cards, properties and links by the IDs in the current whiteboard below; it is updated after",
       "every change. You cannot see or change pictures. The board has no edges and x and y may be negative.",
-      "Cards are 220 wide unless resized (height null fits the content). When you place several cards, leave a gap of about 40 between cards side by side and start",
+      `Cards are ${ops.CARD_SIZE.width} wide unless resized (height null fits the content). When you place several cards, leave a gap of about 40 between cards side by side and start`,
       "each row about 300 below the previous one.",
       "Links can carry a short message shown on the line. Keep replies short and plain text.",
       "",
@@ -332,5 +322,5 @@ const assistant = (() => {
     return item.content.map((part) => part.text ?? part.refusal ?? "").join("");
   }
 
-  return { TOOLS, send, messageText };
+  return { send, messageText };
 })();

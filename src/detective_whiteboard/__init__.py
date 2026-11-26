@@ -75,9 +75,6 @@ def chat(body: dict) -> tuple[int, dict]:
     model = body.get("model") or choices["default"]
     if model not in choices["models"]:
         return 400, error(f"Model {model} is not one of: {', '.join(choices['models'])}")
-    missing = [field for field in ("instructions", "input", "tools") if field not in body]
-    if missing:
-        return 400, error(f"The request is missing {', '.join(missing)}")
     payload = {
         "model": model,
         "instructions": body["instructions"],
@@ -86,8 +83,8 @@ def chat(body: dict) -> tuple[int, dict]:
         "store": False,
         "include": ["reasoning.encrypted_content"],
     }
-    if MODELS.get(model):
-        payload["reasoning"] = {"effort": MODELS[model]}
+    if effort := MODELS.get(model):
+        payload["reasoning"] = {"effort": effort}
     request = urllib.request.Request(
         OPENAI_URL,
         data=json.dumps(payload).encode(),

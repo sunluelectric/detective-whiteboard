@@ -492,12 +492,10 @@ function startDrag(event, card, cardEl) {
     return;
   }
   if (!selected.has(card.id)) clearSelection();
-  const group = (selected.has(card.id) ? [...selected] : [card.id]).map((id) => ({
-    id,
-    el: id === card.id ? cardEl : cardsLayer.querySelector(`.card[data-id="${CSS.escape(id)}"]`),
-    x: findCard(id).x,
-    y: findCard(id).y,
-  }));
+  const group = (selected.has(card.id) ? [...selected] : [card.id]).map((id) => {
+    const { x, y } = findCard(id);
+    return { id, x, y, el: id === card.id ? cardEl : cardsLayer.querySelector(`.card[data-id="${CSS.escape(id)}"]`) };
+  });
   trackPointer(event, card, (dx, dy) => {
     for (const item of group) {
       const moving = findCard(item.id);
@@ -694,7 +692,7 @@ for (const tab of $("search-tabs").children) {
 
 $("search-toggle").addEventListener("click", () => {
   const collapsed = $("search").classList.toggle("collapsed");
-  $("search-toggle").textContent = collapsed ? "Search" : "−";
+  $("search-toggle").textContent = collapsed ? "Search" : "\u2212";
   $("search-toggle").title = collapsed ? "Show search" : "Minimize search";
   if (!collapsed) $(searchMode === "property" ? "search-tag" : "search-input").focus();
 });
@@ -814,11 +812,6 @@ $("chat-input").addEventListener("keydown", (event) => {
 
 // ---------- Rendering ----------
 
-function endpointExists({ card, property }) {
-  const found = findCard(card);
-  return !!found && (!property || found.properties.some((p) => p.id === property));
-}
-
 function render() {
   // Rebuilding the cards would end a drag, so the board is redrawn when the drag ends.
   if (dragging) {
@@ -828,7 +821,7 @@ function render() {
     return;
   }
   renderPending = false;
-  if (linkSource && !endpointExists(linkSource)) linkSource = null;
+  if (linkSource && !ops.endpointExists(board, linkSource)) linkSource = null;
   for (const id of selected) if (!findCard(id)) selected.delete(id);
   runSearch();
   renderToolbar();
