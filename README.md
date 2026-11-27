@@ -73,10 +73,10 @@ The whiteboards are stored in MongoDB, which the app runs in a Podman container 
 - MongoDB runs as a single-node replica set (`rs0`, set up on the first start), which it needs for transactions. The client connects with `directConnection=true`.
 - To back up the data, stop the app and copy `data/mongo`, or export the whiteboards.
 
-Database `detective_whiteboard` (`storage.py`). It is laid out for projects and users, which are not in the app yet: for now every request comes from the user `default-user` working in its project `Default`, both created on start, and `Storage.current_user()` and `Storage.current_project()` are the only places that say so.
+Database `detective_whiteboard` (`storage.py`). It is laid out for users, who are not in the app yet: for now every request comes from the user `default-user`, created on start, and `Storage.current_user()` is the only place that says so. A user sees the projects they own or are a member of. A new database has no projects.
 
 - `users`: `{_id, name}`.
-- `projects`: `{_id, name, owner, members}`; sharing will add user IDs to `members`.
+- `projects`: `{_id, name, owner, members}`, unique by owner and name; sharing will add user IDs to `members`.
 - `app_state`: `{_id: user, last_whiteboard}`, the ID of each user's last opened whiteboard.
 - `whiteboards`: `{_id, project_id, name, version, chat}`, unique by project and name.
 - `cards`: the cards of the file format plus `whiteboard_id` and `order` (their position in the list), unique by whiteboard and card ID.
@@ -84,15 +84,17 @@ Database `detective_whiteboard` (`storage.py`). It is laid out for projects and 
 
 The browser still sends the whole whiteboard with every save. A save replaces the whiteboard's cards and links and deletes the ones that are gone, all in one transaction.
 
-- `GET /api/boards`: `{"boards": [names], "last": name or null}`.
-- `GET /api/boards/<name>`: the whiteboard JSON.
-- `POST /api/boards/<name>`: creates it from the JSON body; 409 if the name is taken.
-- `PUT /api/boards/<name>`: saves it, creating or replacing it.
-- `DELETE /api/boards/<name>`: deletes it, and clears the last whiteboard if it was that one.
-- `POST /api/rename` with `{"from", "to"}`: renames it; 409 if `to` is taken.
-- `PUT /api/last` with `{"name"}`: sets the last whiteboard.
+The API refers to projects and whiteboards by ID, so a rename never breaks a request on its way:
 
-Names are checked on the server too (400 when not allowed); the rules come from when whiteboards were files and still fit Export, which uses the name as the file name. Requests that change anything need `Content-Type: application/json` (except DELETE) and a matching `Origin`, as for `/api/chat`. With several tabs on one whiteboard the last save wins.
+- `GET /api/projects`: `{"projects": [{"id", "name", "boards": [{"id", "name"}]}], "last": {"project", "board"} or null}`, sorted by name.
+- `POST /api/projects` with `{"name"}`: creates a project, returns `{"id"}`; 409 if the name is taken.
+- `POST /api/projects/<id>/rename` with `{"name"}`; `DELETE /api/projects/<id>` deletes it with its whiteboards, cards and links in one transaction.
+- `POST /api/projects/<id>/boards`: creates a whiteboard from its JSON, returns `{"id"}`; 409 if the name is taken in the project. With `?overwrite=true` a whiteboard of that name is replaced instead (Import).
+- `GET /api/boards/<id>`: the whiteboard JSON. `PUT /api/boards/<id>`: saves it; the name in the body is ignored, and a deleted whiteboard is not brought back (404). `DELETE /api/boards/<id>` deletes it.
+- `POST /api/boards/<id>/rename` with `{"name"}`; 409 if the name is taken in the project.
+- `PUT /api/last` with `{"board"}`: sets the last whiteboard. Deleting a whiteboard clears it where it was the last one.
+
+Project and whiteboard names follow the same rules. Names are checked on the server too (400 when not allowed); the rules come from when whiteboards were files and still fit Export, which uses the name as the file name. Requests that change anything need `Content-Type: application/json` (except DELETE) and a matching `Origin`, as for `/api/chat`. With several tabs on one whiteboard the last save wins.
 
 ## Data Model and File Format
 
@@ -150,19 +152,21 @@ A whiteboard is imported and exported as one self-contained JSON file named `<wh
 
 ## Behavior
 
-### Whiteboard
+### Projects and whiteboards
 
-- Create: asks for a name and starts an empty board.
-- Create: asks for a name and creates the whiteboard on the server. A name that is taken or not allowed is reported and asked again.
+- The sidebar on the left lists the projects, each with its whiteboards nested under it, sorted by name. Clicking a project expands or collapses it; clicking a whiteboard opens it. The open whiteboard is highlighted and its project name shown in blue. The `<` button collapses the sidebar to a narrow strip, and `>` brings it back.
+- Project names are unique, and whiteboard names are unique within a project; both follow the same rules. A name that is taken or not allowed is reported and asked again.
+- Sidebar header: + creates a project.
+- Project row (buttons on hover): + creates a whiteboard in the project and opens it, the arrow imports one into the project, the pencil renames the project, and x deletes it with all its whiteboards after a confirmation that says how many go with it.
+- Whiteboard row (buttons on hover): the pencil renames it, x deletes it after a confirmation. Deleting the open whiteboard closes it.
+- The toolbar shows `project / whiteboard` and acts on the open whiteboard: Save As, Rename, Delete and Export.
+- Without projects the board asks for one to be created; with projects but no open whiteboard it points to the sidebar.
 - Auto-save: the open whiteboard is saved about one second after the last change (card drags, resizes and the assistant's changes included), and at once before another whiteboard is opened and when the page is hidden or left. Leaving the page while changes are on their way asks for confirmation. Next to the whiteboard name the toolbar shows Saving..., Saved or Save failed (with the reason as a tooltip); a failed save is retried every five seconds. If the latest changes could not be saved, opening another whiteboard asks first.
-- Open: lists the saved whiteboards; double-click or Open opens one.
-- On startup the last opened whiteboard (the one last created, opened, imported or saved as) opens again.
-- Save As: asks for a new name, pre-filled with the current one, saves a copy under it and continues on the copy with the same view.
-- Rename: renames the whiteboard and its file.
-- Delete: after a confirmation deletes the open whiteboard from the server and closes it.
-- Import: opens a file dialog for `.json` files and adds the whiteboard to the server under the name inside the file, then opens it. If that name is taken, a dialog offers Overwrite (replaces the saved whiteboard) or Rename (asks for another name); a name that is not allowed is asked again. Links pointing to a card or property that does not exist are dropped. Cards without `properties` get an empty list; a card whose position is not a number is an error. A file without a `name`, `cards` and `links` is rejected with an error, and the open board is kept.
+- On startup the last opened whiteboard (the one last created, opened, imported or saved as) opens again, with its project expanded.
+- Save As: asks for a new name, pre-filled with the current one, and a project, the current one by default. It saves a copy there and continues on the copy with the same view, so it also copies a whiteboard into another project.
+- Import: opens a file dialog for `.json` files and adds the whiteboard to that project under the name inside the file, then opens it. If that name is taken in the project, a dialog offers Overwrite (replaces that whiteboard) or Rename (asks for another name); a name that is not allowed is asked again. Links pointing to a card or property that does not exist are dropped. Cards without `properties` get an empty list; a card whose position is not a number is an error. A file without a `name`, `cards` and `links` is rejected with an error, and the open board is kept.
 - Export: downloads `<name>.json`. Where the browser supports `showSaveFilePicker` (Chromium), a save dialog opens with that name filled in. Otherwise the file goes to the download folder. Export does not affect the saved whiteboard.
-- Every button except Create, Open and Import is disabled until a board is open.
+- The toolbar buttons are disabled until a whiteboard is open.
 - Zoom: zoom in, zoom out and reset (100%) buttons, plus Ctrl + mouse wheel at the cursor. Zoom ranges from 25% to 200%.
 - Moving around: the board has no edges or scrollbars. Dragging empty board space with the right mouse button pans the board, keeping the point under the cursor in place; the browser menu does not open there. The mouse wheel scrolls up and down and Shift + wheel sideways; over the scrolling property list of a card with a fixed height, the wheel scrolls the list.
 - A new board starts at the origin, and an opened board starts with its top-left card in view. Zoom and view position are view settings and are not saved in the file.
@@ -219,7 +223,7 @@ A whiteboard is imported and exported as one self-contained JSON file named `<wh
 - The chat panel is always in the bottom right corner of the whiteboard. Its button minimizes it to its header and restores it. Without an open board its controls are disabled.
 - A dropdown in the panel header chooses the model, starting with the default. The choice applies to the next message and is not saved in the file.
 - Enter sends a message and Shift+Enter starts a new line. Each request to the model includes a snapshot of the current whiteboard (JSON, pictures left out).
-- The request runs in the background and the user can keep working, including Create, Open and Import. Only Send, Clear and the model choice are disabled until the assistant answers. A card drag is not interrupted; the assistant's changes are drawn when it ends.
+- The request runs in the background and the user can keep working, including opening, creating and importing whiteboards. Only Send, Clear and the model choice are disabled until the assistant answers. A card drag is not interrupted; the assistant's changes are drawn when it ends.
 - If the user changes the whiteboard (or opens another one) while the assistant works, the assistant can still search and answer, but its remaining changes in that turn are blocked. Changes it made before stay. Blocked actions are marked in the chat, and a yellow notice says the changes were blocked.
 - The assistant can rename the whiteboard; add cards, also from a template (filling in some fields, leaving others empty or leaving fields out); rename, move, resize and delete cards; add, edit, reorder and delete properties; add, restyle and delete links and set their messages; and search. It cannot see or change pictures.
 - Each delete it attempts opens a confirmation dialog. A declined delete is reported back to the assistant.

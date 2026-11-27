@@ -8,13 +8,9 @@
 </head>
 <body>
   <header id="toolbar">
-    <button id="btn-create">Create</button>
-    <button id="btn-open">Open</button>
     <button id="btn-save-as" data-needs-board>Save As</button>
     <button id="btn-rename" data-needs-board>Rename</button>
     <button id="btn-delete" data-needs-board>Delete</button>
-    <span class="sep"></span>
-    <button id="btn-import">Import</button>
     <button id="btn-export" data-needs-board>Export</button>
     <span class="sep"></span>
     <button id="btn-add-card" data-needs-board>Create Card</button>
@@ -28,14 +24,24 @@
     <input id="file-load" type="file" accept=".json,application/json" hidden>
     <input id="file-picture" type="file" accept="image/png,image/jpeg" hidden>
   </header>
+  <div id="workspace">
+  <aside id="sidebar">
+    <div class="sidebar-head">
+      <span class="sidebar-title">Projects</span>
+      <button id="sidebar-new" class="icon" title="New project">+</button>
+      <button id="sidebar-toggle" class="icon" title="Hide projects">&lsaquo;</button>
+    </div>
+    <div id="project-list"></div>
+  </aside>
   <main id="viewport">
     <div id="content">
       <svg id="links"></svg>
       <div id="cards"></div>
     </div>
     <div id="marquee" hidden></div>
-    <div id="empty-hint">Create or open a whiteboard to begin.</div>
+    <div id="empty-hint"></div>
   </main>
+  </div>
   <div id="side">
     <div id="search">
       <div class="search-head">

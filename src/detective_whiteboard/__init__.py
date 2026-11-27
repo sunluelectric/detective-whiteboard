@@ -2,6 +2,7 @@ import argparse
 import http.server
 import json
 import os
+import re
 import signal
 import socket
 import ssl
@@ -176,38 +177,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(400, error("The request must be a JSON object."))
                 return
         try:
-            self.send_json(*self.route(method, urllib.parse.urlsplit(self.path).path, body))
+            self.send_json(*self.route(method, self.path, body))
         except StorageError as err:
             self.send_json(err.status, error(str(err)))
         except PyMongoError as err:
             self.send_json(500, error(f"Storage failed: {err}"))
 
     def route(self, method: str, path: str, body: dict | None) -> tuple[int, dict]:
-        ok = (200, {"ok": True})
         if method == "POST" and path == "/api/chat":
             if not {"instructions", "input", "tools"} <= body.keys():
                 return 400, error("The request needs instructions, input and tools.")
             return chat(body)
+        url = urllib.parse.urlsplit(path)
+        query = urllib.parse.parse_qs(url.query)
         storage = self.storage
-        if method == "GET" and path == "/api/boards":
-            return 200, storage.list()
-        if method == "POST" and path == "/api/rename":
-            storage.rename(body.get("from"), body.get("to"))
-            return ok
-        if method == "PUT" and path == "/api/last":
-            storage.set_last(body.get("name"))
-            return ok
-        if path.startswith("/api/boards/"):
-            name = urllib.parse.unquote(path.removeprefix("/api/boards/"))
-            if method == "GET":
-                return 200, storage.read(name)
-            if method in ("POST", "PUT"):
-                storage.save(name, body, create=method == "POST")
-                return ok
-            if method == "DELETE":
-                storage.delete(name)
-                return ok
-        return 404, error(f"Unknown request {method} {path}")
+        # (method, path pattern, handler): the handler gets the IDs in the path and returns the reply.
+        routes = [
+            ("GET", r"/api/projects", lambda: storage.list()),
+            ("POST", r"/api/projects", lambda: {"id": storage.create_project(body.get("name"))}),
+            ("POST", r"/api/projects/(\w+)/rename", lambda p: storage.rename_project(p, body.get("name"))),
+            ("DELETE", r"/api/projects/(\w+)", lambda p: storage.delete_project(p)),
+            ("POST", r"/api/projects/(\w+)/boards", lambda p: {"id": storage.create(p, body, query.get("overwrite") == ["true"])}),
+            ("GET", r"/api/boards/(\w+)", lambda b: storage.read(b)),
+            ("PUT", r"/api/boards/(\w+)", lambda b: storage.save(b, body)),
+            ("DELETE", r"/api/boards/(\w+)", lambda b: storage.delete(b)),
+            ("POST", r"/api/boards/(\w+)/rename", lambda b: storage.rename(b, body.get("name"))),
+            ("PUT", r"/api/last", lambda: storage.set_last(body.get("board"))),
+        ]
+        for route_method, pattern, handler in routes:
+            match = re.fullmatch(pattern, url.path)
+            if method == route_method and match:
+                return 200, handler(*match.groups()) or {"ok": True}
+        return 404, error(f"Unknown request {method} {url.path}")
 
 
 def stop_on_signal(signum, frame):

@@ -9,6 +9,10 @@ const DASHES = { solid: "", dashed: "8 5", dotted: "2 4" };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 let board = null;
+let boardId = null; // the open whiteboard's ID on the server
+let projectId = null; // the ID of its project
+let projects = []; // [{ id, name, boards: [{ id, name }] }] for the sidebar
+let expanded = new Set(); // IDs of the projects expanded in the sidebar
 let dirty = false; // the open whiteboard has changes that are not sent to the server yet
 let zoom = 1;
 let view = { x: 0, y: 0 }; // the board point at the top left of the viewport
@@ -148,7 +152,9 @@ async function api(method, path, body) {
   return data;
 }
 
-const boardUrl = (name) => `/api/boards/${encodeURIComponent(name)}`;
+const send = (method, path, body) => queued(() => api(method, path, body === undefined ? undefined : JSON.stringify(body)));
+const boardUrl = (id) => `/api/boards/${id}`;
+const projectUrl = (id) => `/api/projects/${id}`;
 
 function scheduleSave(delay = SAVE_DELAY) {
   dirty = true;
@@ -161,12 +167,12 @@ function saveNow() {
   clearTimeout(saveTimer);
   if (!board || !dirty) return queued(() => {});
   const target = board;
-  const name = board.name;
+  const id = boardId;
   const json = JSON.stringify(board);
   dirty = false;
   saving++;
   renderToolbar();
-  return queued(() => api("PUT", boardUrl(name), json)).then(
+  return queued(() => api("PUT", boardUrl(id), json)).then(
     () => {
       saving--;
       if (board === target) saveError = null;
@@ -193,22 +199,33 @@ async function leaveBoard() {
   );
 }
 
-function setLastBoard(name) {
-  queued(() => api("PUT", "/api/last", JSON.stringify({ name }))).catch(() => {});
+// ---------- Projects and whiteboards ----------
+
+// Reloads the projects and their whiteboards for the sidebar. Resolves to the server's reply.
+async function refreshProjects() {
+  const data = await api("GET", "/api/projects");
+  projects = data.projects;
+  render();
+  return data;
 }
+
+const findProject = (id) => projects.find((p) => p.id === id);
 
 // newBoard is checked before it replaces the current board, so bad data leaves the open board untouched.
 // keepView keeps the zoom and position, for a copy made by Save As.
-function openBoard(newBoard, keepView = false) {
+function openBoard(newBoard, id, project, keepView = false) {
   clearTimeout(saveTimer);
   board = newBoard;
+  boardId = id;
+  projectId = project;
+  expanded.add(project);
   dirty = false;
   saveError = null;
   chatError = null;
   selectedLinkId = null;
   linkSource = null;
   selected.clear();
-  setLastBoard(newBoard.name);
+  send("PUT", "/api/last", { board: id }).catch(() => {});
   if (!keepView) {
     // An opened board starts with its top-left card in view.
     const cards = newBoard.cards;
@@ -224,18 +241,21 @@ function openBoard(newBoard, keepView = false) {
 function closeBoard() {
   clearTimeout(saveTimer);
   board = null;
+  boardId = null;
+  projectId = null;
   dirty = false;
   saveError = null;
   chatError = null;
   selectedLinkId = null;
   linkSource = null;
   selected.clear();
+  edits++;
   render();
 }
 
-// Asks for a whiteboard name until use(name) succeeds or the user cancels; a refused name (blank,
+// Asks for a project or whiteboard name until use(name) succeeds or the user cancels; a refused name (blank,
 // forbidden characters, already taken) is reported and asked again.
-async function withBoardName(title, value, use) {
+async function withName(title, value, use) {
   for (;;) {
     const name = await askText(title, "Name", value);
     if (!name) return;
@@ -248,91 +268,147 @@ async function withBoardName(title, value, use) {
   }
 }
 
-// Writes a new whiteboard file and opens it. Pending changes of the open one are sent first.
-async function createOnServer(newBoard, keepView) {
-  await saveNow();
-  await queued(() => api("POST", boardUrl(newBoard.name), JSON.stringify(newBoard)));
-  openBoard(newBoard, keepView);
-}
-
-async function createBoard() {
-  if (!(await leaveBoard())) return;
-  await withBoardName("New whiteboard", "", (name) => createOnServer(ops.newBoard(name)));
-}
-
-// Continues on a copy under a new name; the original keeps its state as of now.
-async function saveBoardAs() {
-  const source = board;
-  await withBoardName("Save as", board.name, (name) => {
-    const copy = structuredClone(source);
-    ops.renameBoard(copy, name);
-    return createOnServer(copy, true);
+async function createProject() {
+  await withName("New project", "", async (name) => {
+    const { id } = await send("POST", "/api/projects", { name });
+    expanded.add(id);
+    await refreshProjects();
   });
 }
 
-// Renames the whiteboard and its file. Used by the Rename button and the assistant.
-async function renameOnServer(target, name) {
-  name = ops.boardName(name);
-  if (name === target.name) return;
-  if (target === board) await saveNow();
-  await queued(() => api("POST", "/api/rename", JSON.stringify({ from: target.name, to: name })));
-  ops.renameBoard(target, name);
-}
-
-async function renameBoard() {
-  const target = board;
-  await withBoardName("Rename whiteboard", board.name, async (name) => {
-    await renameOnServer(target, name);
-    if (board === target) changed();
+async function renameProject(project) {
+  await withName("Rename project", project.name, async (name) => {
+    if (name === project.name) return;
+    await send("POST", `${projectUrl(project.id)}/rename`, { name });
+    await refreshProjects();
   });
 }
 
-async function deleteBoard() {
-  const target = board;
-  const question = `Delete the whiteboard "${target.name}"? This cannot be undone.`;
-  if (!(await askConfirm("Delete whiteboard", question, "Delete")) || board !== target) return;
-  clearTimeout(saveTimer);
-  dirty = false;
+async function deleteProject(project) {
+  const count = project.boards.length;
+  const boards = count === 1 ? "its whiteboard" : `its ${count} whiteboards`;
+  const question = `Delete the project "${project.name}"${count ? ` and ${boards}` : ""}? This cannot be undone.`;
+  if (!(await askConfirm("Delete project", question, "Delete"))) return;
+  const open = projectId === project.id;
+  if (open) {
+    clearTimeout(saveTimer);
+    dirty = false;
+  }
   try {
-    await queued(() => api("DELETE", boardUrl(target.name)));
+    await send("DELETE", projectUrl(project.id));
   } catch (err) {
+    if (open) scheduleSave();
     showMessage("Delete failed", err.message);
     return;
   }
-  edits++;
-  if (board === target) closeBoard();
+  if (open && projectId === project.id) closeBoard();
+  await refreshProjects();
 }
 
-// Lists the saved whiteboards; double-click or Open opens one.
-async function openSaved() {
-  const { boards } = await api("GET", "/api/boards");
-  if (!boards.length) return showMessage("Open whiteboard", "There are no saved whiteboards yet.");
-  const list = el(
-    "select",
-    { size: Math.min(Math.max(boards.length, 4), 12), class: "board-list" },
-    ...boards.map((name) => el("option", { value: name }, name)),
-  );
-  list.value = boards.includes(board?.name) ? board.name : boards[0];
-  list.addEventListener("dblclick", () => $("dialog").close("ok"));
-  const name = await showDialog({ title: "Open whiteboard", body: [list], collect: () => list.value, ok: "Open" });
-  if (!name || name === board?.name || !(await leaveBoard())) return;
+// Writes a new whiteboard into a project and opens it. Pending changes of the open one are sent first.
+// overwrite replaces a whiteboard of the same name in the project (for Import).
+async function createOnServer(project, newBoard, keepView = false, overwrite = false) {
+  await saveNow();
+  const { id } = await send("POST", `${projectUrl(project)}/boards${overwrite ? "?overwrite=true" : ""}`, newBoard);
+  openBoard(newBoard, id, project, keepView);
+  await refreshProjects();
+}
+
+async function createBoard(project) {
+  if (!(await leaveBoard())) return;
+  await withName(`New whiteboard in "${project.name}"`, "", (name) => createOnServer(project.id, ops.newBoard(name)));
+}
+
+async function openSaved(project, id) {
+  if (id === boardId || !(await leaveBoard())) return;
   try {
-    openBoard(ops.loadBoard(await api("GET", boardUrl(name))));
+    openBoard(ops.loadBoard(await api("GET", boardUrl(id))), id, project);
   } catch (err) {
-    showMessage("Open failed", `Could not open "${name}": ${err.message}`);
+    showMessage("Open failed", err.message);
+    await refreshProjects();
   }
 }
 
+// A copy under a new name, in this or another project; the work continues on the copy.
+async function saveBoardAs() {
+  const source = board;
+  let name = board.name;
+  let target = projectId;
+  for (;;) {
+    const input = textInput(name);
+    const select = el("select", {}, ...projects.map((p) => el("option", { value: p.id }, p.name)));
+    select.value = target;
+    const result = await showDialog({
+      title: "Save as",
+      body: [el("label", {}, "Name"), input, el("label", {}, "Project"), select],
+      collect: () => ({ name: input.value.trim(), project: select.value }),
+    });
+    if (!result) return;
+    ({ name, project: target } = result);
+    try {
+      const copy = structuredClone(source);
+      ops.renameBoard(copy, name);
+      await createOnServer(target, copy, true);
+      return;
+    } catch (err) {
+      await showMessage("Save as", err.message);
+    }
+  }
+}
+
+// Renames the open whiteboard on the server and in the page. Also used by the assistant.
+async function renameOnServer(target, name) {
+  name = ops.boardName(name);
+  if (target !== board) throw new Error("This whiteboard is no longer open.");
+  if (name === target.name) return;
+  await send("POST", `${boardUrl(boardId)}/rename`, { name });
+  ops.renameBoard(target, name);
+  refreshProjects();
+}
+
+async function renameWhiteboard(id, current) {
+  await withName("Rename whiteboard", current, async (name) => {
+    if (id === boardId) {
+      await renameOnServer(board, name);
+      edits++;
+    } else if (name !== current) {
+      await send("POST", `${boardUrl(id)}/rename`, { name });
+      await refreshProjects();
+    }
+  });
+}
+
+async function deleteWhiteboard(id, name) {
+  if (!(await askConfirm("Delete whiteboard", `Delete the whiteboard "${name}"? This cannot be undone.`, "Delete"))) return;
+  if (id === boardId) {
+    clearTimeout(saveTimer);
+    dirty = false;
+  }
+  try {
+    await send("DELETE", boardUrl(id));
+  } catch (err) {
+    if (id === boardId) scheduleSave();
+    showMessage("Delete failed", err.message);
+    return;
+  }
+  if (id === boardId) closeBoard();
+  await refreshProjects();
+}
+
 // On startup the last opened whiteboard opens again.
-async function openLast() {
-  const { last } = await api("GET", "/api/boards");
-  if (last) openBoard(ops.loadBoard(await api("GET", boardUrl(last))));
+async function startUp() {
+  const { last } = await refreshProjects();
+  if (last) openBoard(ops.loadBoard(await api("GET", boardUrl(last.board))), last.board, last.project);
 }
 
 // ---------- Import and export ----------
 
-async function importBoard() {
-  if (await leaveBoard()) $("file-load").click();
+let importProject = null; // the project an import goes into
+
+async function importInto(project) {
+  if (!(await leaveBoard())) return;
+  importProject = project.id;
+  $("file-load").click();
 }
 
 $("file-load").addEventListener("change", async (event) => {
@@ -346,28 +422,26 @@ $("file-load").addEventListener("change", async (event) => {
     showMessage("Import failed", `Could not import ${file.name}: ${err.message}`);
     return;
   }
-  await importData(data);
+  await importData(data, importProject);
 });
 
-// The imported whiteboard keeps the name in its file. If that name is taken, the user overwrites the saved
-// whiteboard or imports under another name; a name that is not allowed is asked again.
-async function importData(data) {
+// The imported whiteboard keeps the name in its file. If that name is taken in the project, the user
+// overwrites that whiteboard or imports under another name; a name that is not allowed is asked again.
+async function importData(data, project) {
   const title = "Import whiteboard";
   let name = data.name;
   let overwrite = false;
   for (;;) {
     try {
       data.name = ops.boardName(name);
-      await saveNow();
-      await queued(() => api(overwrite ? "PUT" : "POST", boardUrl(data.name), JSON.stringify(data)));
-      openBoard(data);
+      await createOnServer(project, data, false, overwrite);
       return;
     } catch (err) {
       overwrite = false;
       if (err.status === 409) {
         const choice = await showDialog({
           title,
-          message: `A whiteboard named "${name}" already exists. Overwrite it, or import under another name?`,
+          message: `A whiteboard named "${name}" already exists in this project. Overwrite it, or import under another name?`,
           ok: "Overwrite",
           alt: "Rename",
         });
@@ -408,6 +482,66 @@ async function exportBoard() {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+
+// ---------- Sidebar ----------
+
+function toggleProject(id) {
+  if (!expanded.delete(id)) expanded.add(id);
+  renderSidebar();
+}
+
+// Buttons on a sidebar row; the click does not also open or toggle the row.
+function rowButton(text, title, action) {
+  return iconButton(text, title, (event) => {
+    event.stopPropagation();
+    action();
+  });
+}
+
+function renderSidebar() {
+  const rows = projects.map((project) => {
+    const open = expanded.has(project.id);
+    const head = el(
+      "div",
+      { class: "project-row" + (project.id === projectId ? " current" : ""), title: project.name, onclick: () => toggleProject(project.id) },
+      el("span", { class: "twisty" }, open ? "▾" : "▸"),
+      el("span", { class: "row-name" }, project.name),
+      el(
+        "span",
+        { class: "row-actions" },
+        rowButton("+", "New whiteboard", () => createBoard(project)),
+        rowButton("⇧", "Import a whiteboard (JSON file)", () => importInto(project)),
+        rowButton("✎", "Rename project", () => renameProject(project)),
+        rowButton("×", "Delete project", () => deleteProject(project)),
+      ),
+    );
+    if (!open) return el("div", { class: "project" }, head);
+    const boards = project.boards.map((b) =>
+      el(
+        "div",
+        { class: "board-row" + (b.id === boardId ? " open" : ""), title: b.name, onclick: () => openSaved(project.id, b.id) },
+        el("span", { class: "row-name" }, b.name),
+        el(
+          "span",
+          { class: "row-actions" },
+          rowButton("✎", "Rename whiteboard", () => renameWhiteboard(b.id, b.name)),
+          rowButton("×", "Delete whiteboard", () => deleteWhiteboard(b.id, b.name)),
+        ),
+      ),
+    );
+    if (!boards.length) boards.push(el("div", { class: "board-empty" }, "No whiteboards yet"));
+    return el("div", { class: "project" }, head, ...boards);
+  });
+  if (!rows.length) rows.push(el("div", { class: "board-empty" }, "No projects yet"));
+  $("project-list").replaceChildren(...rows);
+}
+
+$("sidebar-new").addEventListener("click", createProject);
+$("sidebar-toggle").addEventListener("click", () => {
+  const collapsed = $("sidebar").classList.toggle("collapsed");
+  $("sidebar-toggle").textContent = collapsed ? "›" : "‹";
+  $("sidebar-toggle").title = collapsed ? "Show projects" : "Hide projects";
+});
 
 // ---------- View: pan and zoom ----------
 
@@ -1037,6 +1171,7 @@ function render() {
     return;
   }
   renderPending = false;
+  renderSidebar();
   if (linkSource && !ops.endpointExists(board, linkSource)) linkSource = null;
   for (const id of selected) if (!findCard(id)) selected.delete(id);
   runSearch();
@@ -1050,13 +1185,16 @@ function render() {
 
 function renderToolbar() {
   for (const button of document.querySelectorAll("[data-needs-board]")) button.disabled = !board;
-  $("board-name").textContent = board?.name ?? "";
+  $("board-name").textContent = board ? `${findProject(projectId)?.name ?? ""} / ${board.name}` : "";
   const failed = !!board && !!saveError;
   $("save-status").textContent = !board ? "" : failed ? "Save failed" : dirty || saving ? "Saving..." : "Saved";
   $("save-status").title = failed ? `${saveError} (retrying)` : "";
   $("save-status").classList.toggle("failed", failed);
   $("status").textContent = linkSource ? "Click a card or property to link to (Esc to cancel)" : "";
   $("empty-hint").hidden = !!board;
+  $("empty-hint").textContent = projects.length
+    ? "Open a whiteboard in the sidebar, or create one with + on a project."
+    : "Create a project with + in the sidebar to begin.";
   document.body.classList.toggle("linking", !!linkSource);
 }
 
@@ -1259,12 +1397,9 @@ $("link-delete").addEventListener("click", () => {
 
 // ---------- Toolbar ----------
 
-$("btn-create").addEventListener("click", createBoard);
-$("btn-open").addEventListener("click", openSaved);
 $("btn-save-as").addEventListener("click", saveBoardAs);
-$("btn-rename").addEventListener("click", renameBoard);
-$("btn-delete").addEventListener("click", deleteBoard);
-$("btn-import").addEventListener("click", importBoard);
+$("btn-rename").addEventListener("click", () => renameWhiteboard(boardId, board.name));
+$("btn-delete").addEventListener("click", () => deleteWhiteboard(boardId, board.name));
 $("btn-export").addEventListener("click", exportBoard);
 $("btn-add-card").addEventListener("click", addCard);
 $("btn-zoom-in").addEventListener("click", () => setZoom(zoom + 0.1));
@@ -1273,4 +1408,4 @@ $("btn-zoom-reset").addEventListener("click", () => setZoom(1));
 
 applyView();
 render();
-openLast().catch((err) => showMessage("Open failed", `Could not open the last whiteboard: ${err.message}`));
+startUp().catch((err) => showMessage("Open failed", `Could not load the projects: ${err.message}`));

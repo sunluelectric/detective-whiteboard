@@ -33,9 +33,10 @@ Whiteboard storage:
 - It has a create button that allows the user to create a new whiteboard. When the user creates a new whiteboard, they must give a name to the whiteboard.
 - The server manages the whiteboards in MongoDB, for a single user without login. A whiteboard name must not contain `/ \ : * ? " < > |`, since Export uses it as the file name. A whiteboard is stored and exported with all its information, including the cards created, the properties of the cards, the links, and the locations of the cards.
 - Changes to the open whiteboard are saved automatically, about one second after the last change and when the user switches whiteboards or leaves the page. There is no save button; the toolbar shows the save status.
-- Creating a whiteboard stores it at once. The user can open (switch to) any saved whiteboard from a list, save the open one as a copy under a new name, rename it and delete it (which closes it).
+- Whiteboards belong to projects. A sidebar lists the projects with their whiteboards; the user creates, renames and deletes projects (with their whiteboards), and creates, opens, renames and deletes whiteboards in them. Project names are unique, whiteboard names unique within a project.
+- Creating a whiteboard stores it at once. The user can save the open one as a copy under a new name, in the same or another project.
 - The last opened whiteboard is kept per user and opens on startup.
-- Import uploads a JSON file from the user's computer as a new whiteboard under the name inside it; if the name is taken the user chooses to overwrite or rename. Export downloads the open whiteboard as a JSON file. Neither counts as saving.
+- Import uploads a JSON file from the user's computer into a project as a new whiteboard under the name inside it; if the name is taken there the user chooses to overwrite or rename. Export downloads the open whiteboard as a JSON file. Neither counts as saving.
 
 Whiteboard and card management:
 
@@ -69,7 +70,7 @@ Not planned: undo.
 ### Backend Storage
 
 - MongoDB runs in a Podman container that the app starts and stops itself; its files are in `./data/mongo`. Database `detective_whiteboard` has `users`, `projects`, `app_state`, `whiteboards`, `cards` and `links` (see `README.md`).
-- Planned: projects (each with several whiteboards the user switches between) and users who log in with a username and password and share projects. The storage is laid out for them; for now there is one hard-coded user, `default-user`, with one project, `Default`. MongoDB authentication comes with the users.
+- Planned: users who log in with a username and password and share projects. The storage is laid out for them; for now there is one hard-coded user, `default-user`. MongoDB authentication comes with the users.
 
 ## General Rules
 

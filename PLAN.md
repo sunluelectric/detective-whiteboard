@@ -259,3 +259,23 @@ Branch `mongodb-storage`. The whiteboards move from JSON files to MongoDB, run b
 - [x] Stopping the app with SIGTERM or SIGHUP (closing the terminal, `kill`) also stops MongoDB. A failed start never stops a container that belongs to another app.
 - [x] Remove the test JSON files from `data/`.
 - [x] Check the API and the UI in headless Chrome against a separate test port; update `README.md` and `CLAUDE.md`.
+
+## Phase 27: Projects
+
+Branch `mongodb-storage` (on top of Phase 26). Projects become visible: the user creates, renames and deletes projects and keeps several whiteboards in each. Still one user, `default-user`.
+
+- [x] Storage and API by ID instead of by name, so a rename never breaks a request on its way:
+  - `GET /api/projects`: every project of the user with its whiteboards (`{id, name}`), and the last opened whiteboard `{project, board}`.
+  - `POST /api/projects` `{name}`; `POST /api/projects/<id>/rename` `{name}`; `DELETE /api/projects/<id>` (with its whiteboards, cards and links, in one transaction).
+  - `POST /api/projects/<id>/boards` creates a whiteboard from its JSON (`?overwrite=true` replaces one of that name, for Import).
+  - `GET`, `PUT` and `DELETE /api/boards/<id>`; `POST /api/boards/<id>/rename` `{name}`. A save no longer changes the name, and saving a deleted whiteboard fails instead of bringing it back.
+  - `PUT /api/last` `{board}`.
+  - Project names are unique per user, whiteboard names per project; both follow the whiteboard name rules. A new database starts without projects.
+- [x] Sidebar on the left, collapsible: projects with their whiteboards nested and expandable; the open whiteboard is highlighted.
+  - Header: new project, collapse.
+  - Project row: new whiteboard, import, rename, delete (asks, saying how many whiteboards go with it).
+  - Whiteboard row: click opens it; rename and delete.
+- [x] Toolbar: Save As (name and target project, default the current one), Rename, Delete, Export, then the card and zoom buttons. Create, Open and Import move to the sidebar. The toolbar shows `project / whiteboard`.
+- [x] Startup opens the last whiteboard and expands its project. Empty states: no project yet, or no whiteboard open.
+- [x] The assistant still works on the open whiteboard.
+- [x] Check the API and the UI in headless Chrome; update `README.md` and `CLAUDE.md`.
