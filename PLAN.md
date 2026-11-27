@@ -279,3 +279,12 @@ Branch `mongodb-storage` (on top of Phase 26). Projects become visible: the user
 - [x] Startup opens the last whiteboard and expands its project. Empty states: no project yet, or no whiteboard open.
 - [x] The assistant still works on the open whiteboard.
 - [x] Check the API and the UI in headless Chrome; update `README.md` and `CLAUDE.md`.
+
+## Phase 28: Actions in the sidebar
+
+Branch `mongodb-storage`. Every project and whiteboard action sits on its own sidebar row, as icons with tooltips, so the toolbar keeps only Create Card, zoom, the name and the save status.
+
+- [x] Whiteboard row: Save As, Export, Rename, Delete, for any whiteboard, not only the open one. Save As asks for a name and a project (the whiteboard's own by default) and opens the copy. Export of the open whiteboard writes what is on screen; of another one, what is saved.
+- [x] Project row unchanged: new whiteboard, import, rename, delete. No Save As or Export for projects.
+- [x] Toolbar: Save As, Rename, Delete and Export removed.
+- [x] Check in headless Chrome; update `README.md`.

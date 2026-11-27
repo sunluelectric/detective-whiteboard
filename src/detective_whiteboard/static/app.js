@@ -329,11 +329,16 @@ async function openSaved(project, id) {
   }
 }
 
-// A copy under a new name, in this or another project; the work continues on the copy.
-async function saveBoardAs() {
-  const source = board;
-  let name = board.name;
-  let target = projectId;
+// The open whiteboard as it is on screen, or another one as it is saved.
+async function boardData(id) {
+  return id === boardId ? board : ops.loadBoard(await api("GET", boardUrl(id)));
+}
+
+// A copy of a whiteboard under a new name, in its own or another project; the copy opens.
+async function saveBoardAs(project, id) {
+  const source = await boardData(id);
+  let name = source.name;
+  let target = project;
   for (;;) {
     const input = textInput(name);
     const select = el("select", {}, ...projects.map((p) => el("option", { value: p.id }, p.name)));
@@ -457,9 +462,10 @@ async function importData(data, project) {
   }
 }
 
-async function exportBoard() {
-  const json = JSON.stringify(board, null, 2);
-  const fileName = `${board.name}.json`;
+async function exportBoard(id) {
+  const data = await boardData(id);
+  const json = JSON.stringify(data, null, 2);
+  const fileName = `${data.name}.json`;
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -524,6 +530,8 @@ function renderSidebar() {
         el(
           "span",
           { class: "row-actions" },
+          rowButton("⧉", "Save as (a copy, also into another project)", () => saveBoardAs(project.id, b.id)),
+          rowButton("⇩", "Export (download as a JSON file)", () => exportBoard(b.id)),
           rowButton("✎", "Rename whiteboard", () => renameWhiteboard(b.id, b.name)),
           rowButton("×", "Delete whiteboard", () => deleteWhiteboard(b.id, b.name)),
         ),
@@ -1397,10 +1405,6 @@ $("link-delete").addEventListener("click", () => {
 
 // ---------- Toolbar ----------
 
-$("btn-save-as").addEventListener("click", saveBoardAs);
-$("btn-rename").addEventListener("click", () => renameWhiteboard(boardId, board.name));
-$("btn-delete").addEventListener("click", () => deleteWhiteboard(boardId, board.name));
-$("btn-export").addEventListener("click", exportBoard);
 $("btn-add-card").addEventListener("click", addCard);
 $("btn-zoom-in").addEventListener("click", () => setZoom(zoom + 0.1));
 $("btn-zoom-out").addEventListener("click", () => setZoom(zoom - 0.1));
