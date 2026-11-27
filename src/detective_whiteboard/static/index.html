@@ -9,9 +9,13 @@
 <body>
   <header id="toolbar">
     <button id="btn-create">Create</button>
-    <button id="btn-load">Load</button>
-    <button id="btn-save" data-needs-board>Save</button>
+    <button id="btn-open">Open</button>
+    <button id="btn-save-as" data-needs-board>Save As</button>
     <button id="btn-rename" data-needs-board>Rename</button>
+    <button id="btn-delete" data-needs-board>Delete</button>
+    <span class="sep"></span>
+    <button id="btn-import">Import</button>
+    <button id="btn-export" data-needs-board>Export</button>
     <span class="sep"></span>
     <button id="btn-add-card" data-needs-board>Create Card</button>
     <span class="sep"></span>
@@ -19,6 +23,7 @@
     <button id="btn-zoom-reset" data-needs-board title="Reset zoom">100%</button>
     <button id="btn-zoom-in" data-needs-board title="Zoom in">+</button>
     <span id="board-name"></span>
+    <span id="save-status"></span>
     <span id="status"></span>
     <input id="file-load" type="file" accept=".json,application/json" hidden>
     <input id="file-picture" type="file" accept="image/png,image/jpeg" hidden>
@@ -29,7 +34,7 @@
       <div id="cards"></div>
     </div>
     <div id="marquee" hidden></div>
-    <div id="empty-hint">Create or load a whiteboard to begin.</div>
+    <div id="empty-hint">Create or open a whiteboard to begin.</div>
   </main>
   <div id="side">
     <div id="search">
@@ -91,6 +96,7 @@
       <div id="dialog-fields"></div>
       <div class="dialog-buttons">
         <button id="dialog-ok" value="ok"></button>
+        <button id="dialog-alt" value="alt" formnovalidate hidden></button>
         <button id="dialog-cancel" value="cancel" formnovalidate></button>
       </div>
     </form>

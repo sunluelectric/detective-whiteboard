@@ -8,7 +8,7 @@ A browser-based whiteboard for organizing a case: cards with pictures and proper
 uv run detective-whiteboard
 ```
 
-This starts a local web server on `http://127.0.0.1:8000/` and opens the whiteboard in the default browser.
+This starts a local web server on `http://127.0.0.1:8000/` and opens the whiteboard in the default browser. Whiteboards are saved in `data/` in the folder the app is started in (ignored by git), created on first start.
 
 The AI assistant needs an OpenAI API key in a `.env` file in the project folder (ignored by git):
 
@@ -22,32 +22,32 @@ The chat panel offers `gpt-6-luna` and `gpt-6.2-astra` (`MODELS` in `__init__.py
 Options:
 
 - `--port N` sets the port (default 8000).
-- `--host 0.0.0.0` allows access from other machines on the LAN at `http://<server IP>:<port>/`. The port may need to be opened in the firewall (for example `sudo firewall-cmd --add-port=8000/tcp`). There is no authentication, and anyone who can reach the server can use the assistant with your API key. Other web pages open in the browser cannot: `/api/chat` only accepts JSON requests whose `Origin`, when sent, matches the server. Browsers only offer the save dialog on `localhost` or HTTPS, so on a LAN address Save downloads the file instead.
+- `--host 0.0.0.0` allows access from other machines on the LAN at `http://<server IP>:<port>/`. The port may need to be opened in the firewall (for example `sudo firewall-cmd --add-port=8000/tcp`). There is no authentication, and anyone who can reach the server can read, change and delete every whiteboard and use the assistant with your API key. Other web pages open in the browser cannot: the API only accepts changes as JSON requests whose `Origin`, when sent, matches the server. Browsers only offer the save dialog on `localhost` or HTTPS, so on a LAN address Export downloads the file instead.
 
 ## Architecture
 
 The application is a single-page web app served by a minimal Python server.
 
-- Backend: `src/detective_whiteboard/__init__.py`. `main()` loads `.env` (`python-dotenv`), serves the `static/` directory (on `127.0.0.1` by default, with `Cache-Control: no-cache` so the browser picks up updated files) using the standard library `http.server` and opens the browser. `GET /api/models` returns the selectable models and the default. `GET /api/templates` reads `card_template.json` (see Card Templates) on every request and returns `{"templates": {...}}`, with an `error` and no templates when the file is broken. `POST /api/chat` forwards `instructions`, `input` and `tools` to the OpenAI Responses API with the API key added, using the requested `model` (which must be in the list) or the default, so the key never reaches the browser. It accepts only `Content-Type: application/json` and rejects requests whose `Origin` does not match the `Host`, so other web pages cannot use the key. OpenAI's certificate is checked against the CA bundle from `certifi`, since Python from python.org has none of its own. It sets `store: false`, so nothing is kept at OpenAI, and asks for encrypted reasoning, which the browser sends back with the next request. Errors come back as `{"error": {"message": ...}}`.
+- Backend: `src/detective_whiteboard/__init__.py`. `main()` loads `.env` (`python-dotenv`), serves the `static/` directory (on `127.0.0.1` by default, with `Cache-Control: no-cache` so the browser picks up updated files) using the standard library `http.server` and opens the browser. `GET /api/models` returns the selectable models and the default. `GET /api/templates` reads `card_template.json` (see Card Templates) on every request and returns `{"templates": {...}}`, with an `error` and no templates when the file is broken. `POST /api/chat` forwards `instructions`, `input` and `tools` to the OpenAI Responses API with the API key added, using the requested `model` (which must be in the list) or the default, so the key never reaches the browser. It accepts only `Content-Type: application/json` and rejects requests whose `Origin` does not match the `Host`, so other web pages cannot use the key. OpenAI's certificate is checked against the CA bundle from `certifi`, since Python from python.org has none of its own. It sets `store: false`, so nothing is kept at OpenAI, and asks for encrypted reasoning, which the browser sends back with the next request. Errors come back as `{"error": {"message": ...}}`. The storage endpoints are listed under Storage.
 - Frontend: `src/detective_whiteboard/static/` with `index.html`, `style.css`, `ops.js`, `assistant.js` and `app.js`. Plain HTML, CSS and JavaScript, with no framework or build step.
 
-All whiteboard state lives in the browser. Saving and loading go through the browser's file dialogs, so the server never touches whiteboard files. For the same reason the browser runs the assistant's chat loop and its tools. A future database backend would add API endpoints to the server without changing the data model.
+The server stores the whiteboards (see Storage). The open whiteboard is held in the browser, which sends it to the server after every change; the browser also runs the assistant's chat loop and its tools. A future database backend would change the storage functions in the server without changing the data model or the API.
 
 ### Frontend structure
 
 - State: one `board` object that matches the JSON file format below.
 - Operations (`ops.js`): every change to a board is a function of the `ops` object, so the user interface and a future AI assistant share the same code. The functions only change the board data and never touch the page. They take the board and JSON-friendly arguments, refer to cards, properties and links by ID, and return the new card, property or link where there is one. Bad input (unknown ID, blank text, invalid color, style or direction, a link within one card) throws an `Error` with a readable message.
-  - Whiteboard: `newBoard(name)`, `loadBoard(data)`, `renameBoard(board, name)`.
+  - Whiteboard: `boardName(name)` (checks a name), `newBoard(name)`, `loadBoard(data)`, `renameBoard(board, name)`. A whiteboard name must not be blank or contain `/ \ : * ? " < > |`, since it is also the file name.
   - Cards: `addCard(board, {name, x, y, properties})` (`properties` is an optional list of `{tag, content}`), `renameCard(board, cardId, name)`, `moveCard(board, cardId, x, y)`, `resizeCard(board, cardId, width, height)` (`height` `null` fits the content), `setCardPicture(board, cardId, dataUrl)`, `deleteCard(board, cardId)`.
   - Properties: `addProperty(board, cardId, {tag, content})`, `editProperty(board, cardId, propertyId, {tag, content})` (either field may be left out; content may be empty), `moveProperty(board, cardId, propertyId, position)` (0 is the top), `deleteProperty(board, cardId, propertyId)`.
   - Links: `addLink(board, source, target, {color, style, direction, message})`, `updateLink(board, linkId, {color, style, direction, message})`, `deleteLink(board, linkId)`. An endpoint is `{card}` or `{card, property}`. A color is a name from `ops.COLORS` or `#rrggbb`. Deleting a card or property also deletes its links.
   - Search: `search(board, {mode, keyword, tag, content})` returns `{cards: [cardId], properties: [{card, property}], links: [linkId]}`.
-- Assistant (`assistant.js`): one tool per operation (except creating, loading, pictures and chat), a system prompt with the current board (pictures left out), and `assistant.send(board, text, hooks)`, which calls `/api/chat` and runs tool calls until the model answers in text. A tool error is returned to the model as `{"error": ...}`. Every tool except `search` changes the board and is blocked once `hooks.stale()` reports that the user changed the board during the turn. It does not touch the page; `hooks` let the user interface redraw, confirm deletes, place new cards and report user edits.
-- User interface (`app.js`): dialogs, file handling, dragging, zoom and rendering. Every user action makes its change through `ops` and then calls `render()`.
+- Assistant (`assistant.js`): one tool per operation (except creating, loading, pictures and chat), a system prompt with the current board (pictures left out), and `assistant.send(board, text, hooks)`, which calls `/api/chat` and runs tool calls until the model answers in text. A tool error is returned to the model as `{"error": ...}`. Every tool except `search` changes the board and is blocked once `hooks.stale()` reports that the user changed the board during the turn. It does not touch the page; `hooks` let the user interface redraw, confirm deletes, place new cards, rename the whiteboard on the server and report user edits.
+- User interface (`app.js`): dialogs, storage requests, import and export, dragging, zoom and rendering. Every user action makes its change through `ops` and then calls `changed()`, which schedules a save and calls `render()`.
 - Rendering: `render()` rebuilds the board from `board`. Cards are absolutely positioned `div` elements inside a board content element, which sits in a viewport without scrollbars. Links are drawn on an SVG layer inside the same content element, so cards and links share one coordinate system. The board has no edges: card positions may be negative, and the SVG layer is sized to cover the cards.
 - View: `view` is the board point at the top left of the viewport. One CSS transform on the content element, `translate(-view * zoom) scale(zoom)`, pans and zooms cards and links together, and the background dot grid is shifted and scaled to match. Pointer distances are divided by `zoom` to convert them to board coordinates.
 - Dragging: the card header is the drag handle. Pointer events update the card's `x` and `y` (of every selected card when the dragged card is selected), and links are redrawn while the cards move.
-- Dialogs: one in-page `<dialog>`, styled like the cards, is used for all input, confirmations and error messages. A dialog requested while another is open waits until that one closes. `showDialog()` fills in a title, an optional message and a body of labels and inputs, and returns a promise with the result of its `collect()` function, or `null` on Cancel. `askFields()` builds it from labeled text fields and returns the trimmed values. Enter confirms, Escape cancels, and blank fields are rejected unless they are optional. The browser's own prompt is used only for the leave-page warning.
+- Dialogs: one in-page `<dialog>`, styled like the cards, is used for all input, confirmations and error messages. A dialog requested while another is open waits until that one closes. `showDialog()` fills in a title, an optional message and a body of labels and inputs, and returns a promise with the result of its `collect()` function, or `null` on Cancel. An optional third button (`alt`) resolves to `"alt"`. `askFields()` builds it from labeled text fields and returns the trimmed values. Enter confirms, Escape cancels, and blank fields are rejected unless they are optional. The browser's own prompt is used only for the leave-page warning.
 
 ## Card Templates
 
@@ -63,9 +63,23 @@ All whiteboard state lives in the browser. Saving and loading go through the bro
 
 The file is read again every time a card is created and at the start of each assistant turn, so edits apply without a restart. Without the file there are no templates. The assistant sees the templates in its system prompt, and its `add_card` tool takes `template`, `contents` (content by tag; other fields stay empty) and `skip` (tags to leave out).
 
+## Storage
+
+The server keeps each whiteboard as `data/<whiteboard name>.json`, and the name of the last opened whiteboard in `data/last_whiteboard.txt` (empty for none). The last whiteboard has its own file instead of being taken from file times because this file layout is temporary: the whiteboards are expected to move to MongoDB and the links to SQLite.
+
+- `GET /api/boards`: `{"boards": [names], "last": name or null}`.
+- `GET /api/boards/<name>`: the whiteboard JSON.
+- `POST /api/boards/<name>`: creates it from the JSON body; 409 if the name is taken.
+- `PUT /api/boards/<name>`: saves it, creating or replacing the file.
+- `DELETE /api/boards/<name>`: deletes it, and clears the last whiteboard if it was that one.
+- `POST /api/rename` with `{"from", "to"}`: renames the file and the name inside it; 409 if `to` is taken. The last whiteboard follows.
+- `PUT /api/last` with `{"name"}`: sets the last whiteboard.
+
+Names are checked on the server too (400 when not allowed). A file is written to a temporary file and moved into place, so a crash never leaves half a file. Requests that change anything need `Content-Type: application/json` (except DELETE) and a matching `Origin`, as for `/api/chat`. With several tabs on one whiteboard the last save wins.
+
 ## Data Model and File Format
 
-A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.json`.
+A whiteboard is stored, imported and exported as one self-contained JSON file named `<whiteboard name>.json`.
 
 ```json
 {
@@ -122,14 +136,19 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 ### Whiteboard
 
 - Create: asks for a name and starts an empty board.
-- Save: downloads `<name>.json`. Where the browser supports `showSaveFilePicker` (Chromium), a save dialog opens with that name filled in. Otherwise the file goes to the download folder. If writing the file fails, or the board changes while the save dialog is open, the board stays marked as unsaved.
-- Load: opens a file dialog for `.json` files. The whiteboard name is taken from the file's contents, not from the file name. Links pointing to a card or property that does not exist are dropped. Cards without `properties` get an empty list; a card whose position is not a number is an error. A file without a `name`, `cards` and `links` is rejected with an error, and the open board is kept.
-- Rename: changes `name`, which is used for the next save.
-- Create and Load ask for confirmation when the current board has unsaved changes.
-- Every button except Create and Load is disabled until a board is open.
+- Create: asks for a name and creates the whiteboard on the server. A name that is taken or not allowed is reported and asked again.
+- Auto-save: the open whiteboard is saved about one second after the last change (card drags, resizes and the assistant's changes included), and at once before another whiteboard is opened and when the page is hidden or left. Leaving the page while changes are on their way asks for confirmation. Next to the whiteboard name the toolbar shows Saving..., Saved or Save failed (with the reason as a tooltip); a failed save is retried every five seconds. If the latest changes could not be saved, opening another whiteboard asks first.
+- Open: lists the saved whiteboards; double-click or Open opens one.
+- On startup the last opened whiteboard (the one last created, opened, imported or saved as) opens again.
+- Save As: asks for a new name, pre-filled with the current one, saves a copy under it and continues on the copy with the same view.
+- Rename: renames the whiteboard and its file.
+- Delete: after a confirmation deletes the open whiteboard from the server and closes it.
+- Import: opens a file dialog for `.json` files and adds the whiteboard to the server under the name inside the file, then opens it. If that name is taken, a dialog offers Overwrite (replaces the saved whiteboard) or Rename (asks for another name); a name that is not allowed is asked again. Links pointing to a card or property that does not exist are dropped. Cards without `properties` get an empty list; a card whose position is not a number is an error. A file without a `name`, `cards` and `links` is rejected with an error, and the open board is kept.
+- Export: downloads `<name>.json`. Where the browser supports `showSaveFilePicker` (Chromium), a save dialog opens with that name filled in. Otherwise the file goes to the download folder. Export does not affect the saved whiteboard.
+- Every button except Create, Open and Import is disabled until a board is open.
 - Zoom: zoom in, zoom out and reset (100%) buttons, plus Ctrl + mouse wheel at the cursor. Zoom ranges from 25% to 200%.
 - Moving around: the board has no edges or scrollbars. Dragging empty board space with the right mouse button pans the board, keeping the point under the cursor in place; the browser menu does not open there. The mouse wheel scrolls up and down and Shift + wheel sideways; over the scrolling property list of a card with a fixed height, the wheel scrolls the list.
-- A new board starts at the origin, and a loaded board starts with its top-left card in view. Zoom and view position are view settings and are not saved in the file.
+- A new board starts at the origin, and an opened board starts with its top-left card in view. Zoom and view position are view settings and are not saved in the file.
 
 ### Cards
 
@@ -183,12 +202,12 @@ A whiteboard is saved as one self-contained JSON file named `<whiteboard name>.j
 - The chat panel is always in the bottom right corner of the whiteboard. Its button minimizes it to its header and restores it. Without an open board its controls are disabled.
 - A dropdown in the panel header chooses the model, starting with the default. The choice applies to the next message and is not saved in the file.
 - Enter sends a message and Shift+Enter starts a new line. Each request to the model includes a snapshot of the current whiteboard (JSON, pictures left out).
-- The request runs in the background and the user can keep working, including Create and Load. Only Send, Clear and the model choice are disabled until the assistant answers. A card drag is not interrupted; the assistant's changes are drawn when it ends.
+- The request runs in the background and the user can keep working, including Create, Open and Import. Only Send, Clear and the model choice are disabled until the assistant answers. A card drag is not interrupted; the assistant's changes are drawn when it ends.
 - If the user changes the whiteboard (or opens another one) while the assistant works, the assistant can still search and answer, but its remaining changes in that turn are blocked. Changes it made before stay. Blocked actions are marked in the chat, and a yellow notice says the changes were blocked.
 - The assistant can rename the whiteboard; add cards, also from a template (filling in some fields, leaving others empty or leaving fields out); rename, move, resize and delete cards; add, edit, reorder and delete properties; add, restyle and delete links and set their messages; and search. It cannot see or change pictures.
 - Each delete it attempts opens a confirmation dialog. A declined delete is reported back to the assistant.
 - The chat shows the user's messages, the assistant's replies, and a short gray line for each action, red when the action failed. Errors such as a missing API key are shown in red at the end. If a message fails before the model answers, it is taken out of the chat and put back in the text box.
-- The chat is saved with the whiteboard, and every message marks the board as unsaved. Clear deletes the chat history after a confirmation.
+- The chat is saved with the whiteboard. If the user opens another whiteboard during a turn, the rest of that turn is not saved. Clear deletes the chat history after a confirmation.
 
 ## Out of Scope for the First Version
 

@@ -218,3 +218,25 @@ Branch `fix-chat-request`. A JSON request to `/api/chat` without `instructions`,
 - [x] Server: reject a body that is not a JSON object or lacks those fields with a 400 and a readable error.
 - [x] Note in Phase 12 that Phase 15 replaced Chat Completions with the Responses API.
 - [x] Check with a short server test.
+
+## Phase 25: Server storage
+
+Branch `server-storage`. The server keeps the whiteboards in `./data` (the folder the app is started in), one `<name>.json` each, and the browser saves every change automatically. Files on the user's computer become import and export only. The file layout is temporary (boards may later move to MongoDB and links to SQLite), so the last opened whiteboard is kept in its own file, `data/last_whiteboard.txt`, instead of being derived from timestamps.
+
+- [x] Whiteboard names must not contain `/ \ : * ? " < > |` (checked in `ops` and on the server).
+- [x] Server API (writes need JSON and a matching `Origin`, like `/api/chat`):
+  - `GET /api/boards` lists the names and the last whiteboard; `GET /api/boards/<name>` reads one.
+  - `POST /api/boards/<name>` creates (409 if it exists); `PUT /api/boards/<name>` saves; `DELETE /api/boards/<name>` deletes.
+  - `POST /api/rename` `{from, to}` renames the file and the name inside it.
+  - `PUT /api/last` `{name}` sets the last whiteboard; rename follows it and delete clears it.
+  - Files are written to a temporary file and moved into place, so a crash never leaves half a file.
+- [x] Browser: auto-save about one second after the last change (card drags and assistant changes included), and at once when switching whiteboards or leaving the page. Server requests run one after another. The toolbar shows Saving..., Saved or Save failed (retried every few seconds).
+- [x] Toolbar: Create, Open (list of saved whiteboards), Save As, Rename, Delete, Import, Export. Save is gone.
+  - Create and Save As refuse existing names and ask again. Save As continues on the copy.
+  - Rename (also the assistant's tool) renames the file.
+  - Delete asks for confirmation, then closes the whiteboard.
+  - Import uses the name in the file; for an existing name the user chooses Overwrite or Rename.
+  - Export downloads the JSON file as Save did.
+- [x] On startup the last whiteboard opens.
+- [x] `data/` is ignored by git.
+- [x] Check the server API with a short script and the UI in headless Chrome; update `README.md` and `CLAUDE.md`.

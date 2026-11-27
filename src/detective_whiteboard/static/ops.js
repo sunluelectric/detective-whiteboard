@@ -18,6 +18,8 @@ const ops = (() => {
   const DIRECTIONS = ["forward", "backward", "none"];
   const SEARCH_MODES = ["global", "card", "property", "link"];
   const CARD_SIZE = { width: 220, minWidth: 160, minHeight: 80 };
+  // Characters that are not allowed in a whiteboard name, since the name is also its file name.
+  const NAME_FORBIDDEN = '/\\:*?"<>|';
 
   function uid(prefix) {
     return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -60,8 +62,16 @@ const ops = (() => {
 
   // ---------- Whiteboard ----------
 
+  function boardName(value) {
+    const name = text(value, "Whiteboard name");
+    if ([...name].some((ch) => NAME_FORBIDDEN.includes(ch) || ch < " ")) {
+      throw new Error(`Whiteboard name must not contain any of: ${[...NAME_FORBIDDEN].join(" ")}`);
+    }
+    return name;
+  }
+
   function newBoard(name) {
-    return { version: 1, name: text(name, "Whiteboard name"), cards: [], links: [], chat: [] };
+    return { version: 1, name: boardName(name), cards: [], links: [], chat: [] };
   }
 
   // Whether the card, or the property of the card, of an endpoint { card, property } exists.
@@ -89,7 +99,7 @@ const ops = (() => {
   }
 
   function renameBoard(board, name) {
-    board.name = text(name, "Whiteboard name");
+    board.name = boardName(name);
   }
 
   // ---------- Cards ----------
@@ -286,6 +296,7 @@ const ops = (() => {
     getProperty,
     getLink,
     endpointExists,
+    boardName,
     newBoard,
     loadBoard,
     renameBoard,

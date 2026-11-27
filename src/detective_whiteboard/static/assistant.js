@@ -60,10 +60,10 @@ const assistant = (() => {
   // readOnly tools still run after the user changed the whiteboard during a turn; all others are blocked.
   const TOOLS = {
     rename_whiteboard: {
-      description: "Rename the whiteboard.",
+      description: "Rename the whiteboard. The name is also its file name, so some characters are not allowed.",
       parameters: { name: string("New name") },
       required: ["name"],
-      run: (board, a) => ops.renameBoard(board, a.name),
+      run: (board, a, hooks) => hooks.renameBoard(board, a.name),
     },
     add_card: {
       description:
@@ -261,7 +261,7 @@ const assistant = (() => {
       }
       // The user may have changed the whiteboard while the confirmation waited behind their own dialog.
       if (blocked()) return { error: BLOCKED, blocked: true };
-      return tool.run(board, args, hooks) ?? { ok: true };
+      return (await tool.run(board, args, hooks)) ?? { ok: true };
     } catch (err) {
       return { error: err.message };
     }
@@ -273,7 +273,8 @@ const assistant = (() => {
   // If the user changes the whiteboard during the turn, the remaining changes are blocked and the turn
   // ends with a notice item, which is shown in the chat but not sent to the model.
   // hooks: onUpdate() after every change to the board or chat, confirm(question) resolving to
-  // true or false, cardPosition() returning { x, y } for a new card, stale() returning true once the
+  // true or false, cardPosition() returning { x, y } for a new card, renameBoard(board, name) renaming the
+  // whiteboard and its file on the server, stale() returning true once the
   // user changed the whiteboard since the message was sent, model (empty for the server's default), and
   // loadTemplates() resolving to the card templates, which are read once per turn.
   // If the turn fails before the model answers, the user's message is taken out of the chat again and the

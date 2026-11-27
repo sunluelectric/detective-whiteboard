@@ -9,7 +9,7 @@ const DASHES = { solid: "", dashed: "8 5", dotted: "2 4" };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 let board = null;
-let dirty = false;
+let dirty = false; // the open whiteboard has changes that are not sent to the server yet
 let zoom = 1;
 let view = { x: 0, y: 0 }; // the board point at the top left of the viewport
 let selected = new Set(); // IDs of the selected cards
@@ -38,7 +38,7 @@ function findCard(id) {
 // After a change made by the user.
 function changed() {
   edits++;
-  dirty = true;
+  scheduleSave();
   render();
 }
 
@@ -68,7 +68,8 @@ function showDialog(options) {
   return dialogQueue;
 }
 
-function openDialog({ title, message = "", body = [], collect = () => true, ok = "OK", cancel = "Cancel" }) {
+// alt is the label of an optional third button; choosing it resolves to "alt".
+function openDialog({ title, message = "", body = [], collect = () => true, ok = "OK", cancel = "Cancel", alt = null }) {
   const dialog = $("dialog");
   $("dialog-title").textContent = title;
   $("dialog-message").textContent = message;
@@ -77,11 +78,13 @@ function openDialog({ title, message = "", body = [], collect = () => true, ok =
   $("dialog-ok").textContent = ok;
   $("dialog-cancel").textContent = cancel;
   $("dialog-cancel").hidden = !cancel;
+  $("dialog-alt").textContent = alt ?? "";
+  $("dialog-alt").hidden = !alt;
   dialog.returnValue = "";
   dialog.showModal();
   $("dialog-fields").querySelector("input")?.select();
   return new Promise((resolve) => {
-    dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok" ? collect() : null), { once: true });
+    dialog.addEventListener("close", () => resolve({ ok: collect, alt: () => "alt" }[dialog.returnValue]?.() ?? null), { once: true });
   });
 }
 
@@ -114,46 +117,273 @@ function showMessage(title, message) {
   return showDialog({ title, message, cancel: null });
 }
 
-// ---------- Whiteboard ----------
+// ---------- Storage on the server ----------
 
-async function confirmDiscard() {
-  return !board || !dirty || askConfirm("Unsaved changes", "The current whiteboard has unsaved changes. Discard them?", "Discard");
+// The open whiteboard is saved SAVE_DELAY after the last change, and at once when another one is opened or
+// the page is left. dirty means it has changes that are not sent yet.
+const SAVE_DELAY = 1000;
+const RETRY_DELAY = 5000;
+let saveTimer = null;
+let saving = 0; // saves sent and not answered yet
+let saveError = null; // message of the last failed save of the open whiteboard
+let serverQueue = Promise.resolve();
+
+// Server requests run one after another, so a save never overtakes an earlier save, rename or delete.
+function queued(task) {
+  const result = serverQueue.then(task);
+  serverQueue = result.catch(() => {});
+  return result;
+}
+
+// body is a JSON string. Throws an Error with the server's message and the HTTP status.
+async function api(method, path, body) {
+  const headers = body === undefined ? {} : { "Content-Type": "application/json" };
+  const response = await fetch(path, { method, headers, body });
+  const data = await response.json();
+  if (!response.ok) {
+    throw Object.assign(new Error(data.error?.message ?? `Request failed with status ${response.status}`), {
+      status: response.status,
+    });
+  }
+  return data;
+}
+
+const boardUrl = (name) => `/api/boards/${encodeURIComponent(name)}`;
+
+function scheduleSave(delay = SAVE_DELAY) {
+  dirty = true;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, delay);
+}
+
+// Sends the open whiteboard if it has unsent changes. Resolves once every request sent so far is answered.
+function saveNow() {
+  clearTimeout(saveTimer);
+  if (!board || !dirty) return queued(() => {});
+  const target = board;
+  const name = board.name;
+  const json = JSON.stringify(board);
+  dirty = false;
+  saving++;
+  renderToolbar();
+  return queued(() => api("PUT", boardUrl(name), json)).then(
+    () => {
+      saving--;
+      if (board === target) saveError = null;
+      renderToolbar();
+    },
+    (err) => {
+      saving--;
+      if (board === target) {
+        saveError = err.message;
+        scheduleSave(RETRY_DELAY);
+      }
+      renderToolbar();
+    },
+  );
+}
+
+// Sends the open whiteboard's changes before another one is opened. Resolves to false if the user stays.
+async function leaveBoard() {
+  if (!board) return true;
+  await saveNow();
+  return (
+    !saveError ||
+    askConfirm("Save failed", `The latest changes to "${board.name}" could not be saved: ${saveError}`, "Leave anyway")
+  );
+}
+
+function setLastBoard(name) {
+  queued(() => api("PUT", "/api/last", JSON.stringify({ name }))).catch(() => {});
 }
 
 // newBoard is checked before it replaces the current board, so bad data leaves the open board untouched.
-function openBoard(newBoard) {
+// keepView keeps the zoom and position, for a copy made by Save As.
+function openBoard(newBoard, keepView = false) {
+  clearTimeout(saveTimer);
   board = newBoard;
   dirty = false;
+  saveError = null;
   chatError = null;
   selectedLinkId = null;
   linkSource = null;
   selected.clear();
-  // A loaded board starts with its top-left card in view.
-  const cards = newBoard.cards;
-  zoom = 1;
-  setView(
-    cards.length ? Math.min(...cards.map((c) => c.x)) - 40 : 0,
-    cards.length ? Math.min(...cards.map((c) => c.y)) - 40 : 0,
-  );
+  setLastBoard(newBoard.name);
+  if (!keepView) {
+    // An opened board starts with its top-left card in view.
+    const cards = newBoard.cards;
+    zoom = 1;
+    setView(
+      cards.length ? Math.min(...cards.map((c) => c.x)) - 40 : 0,
+      cards.length ? Math.min(...cards.map((c) => c.y)) - 40 : 0,
+    );
+  }
   render();
 }
 
+function closeBoard() {
+  clearTimeout(saveTimer);
+  board = null;
+  dirty = false;
+  saveError = null;
+  chatError = null;
+  selectedLinkId = null;
+  linkSource = null;
+  selected.clear();
+  render();
+}
+
+// Asks for a whiteboard name until use(name) succeeds or the user cancels; a refused name (blank,
+// forbidden characters, already taken) is reported and asked again.
+async function withBoardName(title, value, use) {
+  for (;;) {
+    const name = await askText(title, "Name", value);
+    if (!name) return;
+    try {
+      return await use(ops.boardName(name));
+    } catch (err) {
+      await showMessage(title, err.message);
+      value = name;
+    }
+  }
+}
+
+// Writes a new whiteboard file and opens it. Pending changes of the open one are sent first.
+async function createOnServer(newBoard, keepView) {
+  await saveNow();
+  await queued(() => api("POST", boardUrl(newBoard.name), JSON.stringify(newBoard)));
+  openBoard(newBoard, keepView);
+}
+
 async function createBoard() {
-  if (!(await confirmDiscard())) return;
-  const name = await askText("New whiteboard", "Name");
-  if (!name) return;
-  openBoard(ops.newBoard(name));
+  if (!(await leaveBoard())) return;
+  await withBoardName("New whiteboard", "", (name) => createOnServer(ops.newBoard(name)));
+}
+
+// Continues on a copy under a new name; the original keeps its state as of now.
+async function saveBoardAs() {
+  const source = board;
+  await withBoardName("Save as", board.name, (name) => {
+    const copy = structuredClone(source);
+    ops.renameBoard(copy, name);
+    return createOnServer(copy, true);
+  });
+}
+
+// Renames the whiteboard and its file. Used by the Rename button and the assistant.
+async function renameOnServer(target, name) {
+  name = ops.boardName(name);
+  if (name === target.name) return;
+  if (target === board) await saveNow();
+  await queued(() => api("POST", "/api/rename", JSON.stringify({ from: target.name, to: name })));
+  ops.renameBoard(target, name);
 }
 
 async function renameBoard() {
-  const name = await askText("Rename whiteboard", "Name", board.name);
-  if (!name || name === board.name) return;
-  ops.renameBoard(board, name);
-  changed();
+  const target = board;
+  await withBoardName("Rename whiteboard", board.name, async (name) => {
+    await renameOnServer(target, name);
+    if (board === target) changed();
+  });
 }
 
-async function saveBoard() {
-  const saving = board;
+async function deleteBoard() {
+  const target = board;
+  const question = `Delete the whiteboard "${target.name}"? This cannot be undone.`;
+  if (!(await askConfirm("Delete whiteboard", question, "Delete")) || board !== target) return;
+  clearTimeout(saveTimer);
+  dirty = false;
+  try {
+    await queued(() => api("DELETE", boardUrl(target.name)));
+  } catch (err) {
+    showMessage("Delete failed", err.message);
+    return;
+  }
+  edits++;
+  if (board === target) closeBoard();
+}
+
+// Lists the saved whiteboards; double-click or Open opens one.
+async function openSaved() {
+  const { boards } = await api("GET", "/api/boards");
+  if (!boards.length) return showMessage("Open whiteboard", "There are no saved whiteboards yet.");
+  const list = el(
+    "select",
+    { size: Math.min(Math.max(boards.length, 4), 12), class: "board-list" },
+    ...boards.map((name) => el("option", { value: name }, name)),
+  );
+  list.value = boards.includes(board?.name) ? board.name : boards[0];
+  list.addEventListener("dblclick", () => $("dialog").close("ok"));
+  const name = await showDialog({ title: "Open whiteboard", body: [list], collect: () => list.value, ok: "Open" });
+  if (!name || name === board?.name || !(await leaveBoard())) return;
+  try {
+    openBoard(ops.loadBoard(await api("GET", boardUrl(name))));
+  } catch (err) {
+    showMessage("Open failed", `Could not open "${name}": ${err.message}`);
+  }
+}
+
+// On startup the last opened whiteboard opens again.
+async function openLast() {
+  const { last } = await api("GET", "/api/boards");
+  if (last) openBoard(ops.loadBoard(await api("GET", boardUrl(last))));
+}
+
+// ---------- Import and export ----------
+
+async function importBoard() {
+  if (await leaveBoard()) $("file-load").click();
+}
+
+$("file-load").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  let data;
+  try {
+    data = ops.loadBoard(JSON.parse(await file.text()));
+  } catch (err) {
+    showMessage("Import failed", `Could not import ${file.name}: ${err.message}`);
+    return;
+  }
+  await importData(data);
+});
+
+// The imported whiteboard keeps the name in its file. If that name is taken, the user overwrites the saved
+// whiteboard or imports under another name; a name that is not allowed is asked again.
+async function importData(data) {
+  const title = "Import whiteboard";
+  let name = data.name;
+  let overwrite = false;
+  for (;;) {
+    try {
+      data.name = ops.boardName(name);
+      await saveNow();
+      await queued(() => api(overwrite ? "PUT" : "POST", boardUrl(data.name), JSON.stringify(data)));
+      openBoard(data);
+      return;
+    } catch (err) {
+      overwrite = false;
+      if (err.status === 409) {
+        const choice = await showDialog({
+          title,
+          message: `A whiteboard named "${name}" already exists. Overwrite it, or import under another name?`,
+          ok: "Overwrite",
+          alt: "Rename",
+        });
+        if (choice === null) return;
+        overwrite = choice === true;
+        if (overwrite) continue;
+      } else {
+        await showMessage(title, err.message);
+      }
+      name = await askText(title, "Name", name);
+      if (!name) return;
+    }
+  }
+}
+
+async function exportBoard() {
   const json = JSON.stringify(board, null, 2);
   const fileName = `${board.name}.json`;
   if (window.showSaveFilePicker) {
@@ -166,39 +396,18 @@ async function saveBoard() {
       await writable.write(json);
       await writable.close();
     } catch (err) {
-      if (err.name !== "AbortError") showMessage("Save failed", `Could not save ${fileName}: ${err.message}`);
-      return;
+      if (err.name !== "AbortError") showMessage("Export failed", `Could not export ${fileName}: ${err.message}`);
     }
-  } else {
-    // A download cannot report whether the user kept the file, so it counts as saved.
-    // Firefox and Safari drop the download if the URL is revoked before it starts.
-    const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
-    const link = el("a", { href: url, download: fileName });
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return;
   }
-  // The user or the assistant may have changed the board while the save dialog was open.
-  if (board === saving && JSON.stringify(board, null, 2) === json) dirty = false;
-  renderToolbar();
+  // Firefox and Safari drop the download if the URL is revoked before it starts.
+  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+  const link = el("a", { href: url, download: fileName });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
-
-async function loadBoard() {
-  if (!(await confirmDiscard())) return;
-  $("file-load").click();
-}
-
-$("file-load").addEventListener("change", async (event) => {
-  const file = event.target.files[0];
-  event.target.value = "";
-  if (!file) return;
-  try {
-    openBoard(ops.loadBoard(JSON.parse(await file.text())));
-  } catch (err) {
-    showMessage("Load failed", `Could not load ${file.name}: ${err.message}`);
-  }
-});
 
 // ---------- View: pan and zoom ----------
 
@@ -474,7 +683,7 @@ function trackPointer(event, card, onMove) {
     },
     () => {
       dragging = false;
-      if (counted) dirty = true;
+      if (counted) scheduleSave();
       if (renderPending) render();
       else renderToolbar();
     },
@@ -637,8 +846,14 @@ document.addEventListener("keydown", (event) => {
   else if (selectedLinkId || selected.size) deselectAll();
 });
 
+// Unsent changes are sent at once; the browser asks before leaving while they are on their way.
 window.addEventListener("beforeunload", (event) => {
-  if (board && dirty) event.preventDefault();
+  if (!dirty && !saving) return;
+  saveNow();
+  event.preventDefault();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) saveNow();
 });
 
 // A user action can fail when the assistant deleted its card, property or link while a dialog was open.
@@ -713,11 +928,12 @@ async function sendChat() {
   try {
     await assistant.send(turnBoard, text, {
       onUpdate: () => {
-        if (board === turnBoard) dirty = true;
+        if (board === turnBoard) scheduleSave();
         render();
       },
       confirm: (question) => askConfirm("Assistant", question, "Allow"),
       cardPosition: newCardPosition,
+      renameBoard: renameOnServer,
       stale: () => board !== turnBoard || edits !== start,
       model: $("chat-model").value,
       loadTemplates,
@@ -834,7 +1050,11 @@ function render() {
 
 function renderToolbar() {
   for (const button of document.querySelectorAll("[data-needs-board]")) button.disabled = !board;
-  $("board-name").textContent = board ? board.name + (dirty ? " *" : "") : "";
+  $("board-name").textContent = board?.name ?? "";
+  const failed = !!board && !!saveError;
+  $("save-status").textContent = !board ? "" : failed ? "Save failed" : dirty || saving ? "Saving..." : "Saved";
+  $("save-status").title = failed ? `${saveError} (retrying)` : "";
+  $("save-status").classList.toggle("failed", failed);
   $("status").textContent = linkSource ? "Click a card or property to link to (Esc to cancel)" : "";
   $("empty-hint").hidden = !!board;
   document.body.classList.toggle("linking", !!linkSource);
@@ -1040,9 +1260,12 @@ $("link-delete").addEventListener("click", () => {
 // ---------- Toolbar ----------
 
 $("btn-create").addEventListener("click", createBoard);
-$("btn-load").addEventListener("click", loadBoard);
-$("btn-save").addEventListener("click", saveBoard);
+$("btn-open").addEventListener("click", openSaved);
+$("btn-save-as").addEventListener("click", saveBoardAs);
 $("btn-rename").addEventListener("click", renameBoard);
+$("btn-delete").addEventListener("click", deleteBoard);
+$("btn-import").addEventListener("click", importBoard);
+$("btn-export").addEventListener("click", exportBoard);
 $("btn-add-card").addEventListener("click", addCard);
 $("btn-zoom-in").addEventListener("click", () => setZoom(zoom + 0.1));
 $("btn-zoom-out").addEventListener("click", () => setZoom(zoom - 0.1));
@@ -1050,3 +1273,4 @@ $("btn-zoom-reset").addEventListener("click", () => setZoom(1));
 
 applyView();
 render();
+openLast().catch((err) => showMessage("Open failed", `Could not open the last whiteboard: ${err.message}`));

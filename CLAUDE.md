@@ -10,7 +10,7 @@ This project is jointly developed by human developer and vibe coding agent.
 
 ## Current State and Commands
 
-- First version implemented as described in `README.md`: `src/detective_whiteboard/__init__.py` (static server and `/api/chat` proxy to OpenAI) and `src/detective_whiteboard/static/` (`index.html`, `style.css`, `ops.js` for all board operations, `assistant.js` for the AI assistant, `app.js` for the user interface). Progress is tracked in `PLAN.md`.
+- First version implemented as described in `README.md`: `src/detective_whiteboard/__init__.py` (static server, whiteboard storage in `./data` and `/api/chat` proxy to OpenAI) and `src/detective_whiteboard/static/` (`index.html`, `style.css`, `ops.js` for all board operations, `assistant.js` for the AI assistant, `app.js` for the user interface). Progress is tracked in `PLAN.md`.
 - Card templates are in `./card_template.json`.
 - Run the app: `uv run detective-whiteboard` (options `--host`, `--port`; `--host 0.0.0.0` for LAN access). The assistant needs `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`) in `./.env`.
 - Add a dependency: `uv add <package>` (dev-only: `uv add --dev <package>`)
@@ -28,15 +28,18 @@ This project is about building such a detective whiteboard.
 
 The application has a browser-based graphical user interface with the following features.
 
-Create, save and load:
+Whiteboard storage:
 
 - It has a create button that allows the user to create a new whiteboard. When the user creates a new whiteboard, they must give a name to the whiteboard.
-- It has a save button that allows the user to save the whiteboard into local file(s). In the initial implementation, only one JSON file is saved. The name of the JSON file should be the same with the name of the whiteboard. The JSON file should be self-contained and has all the information of the whiteboard, including the cards created, the properties of the cards, the links, and the locations of the cards.
-- It has a load button that allows the user to load the whiteboard from the local file(s). In the initial implementation, only load the JSON file. A browsing pop-up should appear and the user can select the JSON file to be loaded.
+- The server manages the whiteboards for a single user without login, one JSON file per whiteboard in `./data` in the project folder. The name of the JSON file is the name of the whiteboard, so a name must not contain `/ \ : * ? " < > |`. The JSON file is self-contained and has all the information of the whiteboard, including the cards created, the properties of the cards, the links, and the locations of the cards.
+- Changes to the open whiteboard are saved automatically, about one second after the last change and when the user switches whiteboards or leaves the page. There is no save button; the toolbar shows the save status.
+- Creating a whiteboard creates its JSON file. The user can open (switch to) any saved whiteboard from a list, save the open one as a copy under a new name, rename it (which renames the file) and delete it (which closes it).
+- The last opened whiteboard is kept in `./data/last_whiteboard.txt` and opens on startup. It is a separate file rather than taken from file times because the files are temporary: whiteboards may move to MongoDB and links to SQLite.
+- Import uploads a JSON file from the user's computer as a new whiteboard under the name inside it; if the name is taken the user chooses to overwrite or rename. Export downloads the open whiteboard as a JSON file. Neither counts as saving.
 
 Whiteboard and card management:
 
-Once a whiteboard is created or loaded, the following features are enabled.
+Once a whiteboard is created or opened, the following features are enabled.
 
 - It has a rename button that allows the user to rename the whiteboard.
 - The user can zoom the entire whiteboard in and out, with cards and links scaled together.
@@ -65,7 +68,7 @@ Not planned: undo.
 
 ### Backend Storage
 
-- In the first implementation, use self-contained JSON to store all information from the whiteboard. In the future, a hybrid datastructure or database with graph and SQL capability might be used.
+- The server stores each whiteboard as self-contained JSON in `./data`. In the future, the whiteboards might move to MongoDB and the links to SQLite.
 
 ## General Rules
 

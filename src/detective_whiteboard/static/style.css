@@ -20,6 +20,8 @@ body { display: flex; flex-direction: column; }
 
 #toolbar .sep { width: 1px; height: 20px; background: #666; margin: 0 4px; }
 #board-name { margin-left: 12px; font-weight: bold; }
+#save-status { margin-left: 8px; color: #aaa; font-size: 12px; }
+#save-status.failed { color: #ff8a80; }
 #status { margin-left: auto; color: #f0c040; }
 
 button { cursor: pointer; }
@@ -210,6 +212,7 @@ body.linking .card:hover, body.linking .property:hover { outline: 2px dashed #1e
 #dialog p { margin: 10px; }
 #dialog-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; margin: 10px; }
 #dialog-fields:empty { display: none; }
+#dialog-fields .board-list { grid-column: 1 / -1; min-width: 260px; }
 #dialog-fields input, #dialog-fields select { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; }
 /* Template field rows join the dialog's two-column grid: checkbox and tag, then the content input. */
 .template-fields { display: contents; }
