@@ -240,3 +240,22 @@ Branch `server-storage`. The server keeps the whiteboards in `./data` (the folde
 - [x] On startup the last whiteboard opens.
 - [x] `data/` is ignored by git.
 - [x] Check the server API with a short script and the UI in headless Chrome; update `README.md` and `CLAUDE.md`.
+
+## Phase 26: MongoDB storage
+
+Branch `mongodb-storage`. The whiteboards move from JSON files to MongoDB, run by the app in a Podman container. The user sees no difference: the HTTP API and the browser stay as they are. The layout prepares for projects and users: for now there is one hard-coded user, `default-user`, with one project, `Default`.
+
+- [x] Container (`container.py`): `uv run detective-whiteboard` starts `docker.io/library/mongo:8.0` as `detective-whiteboard-mongo-<port>` and stops it on exit (`--rm`, so every start is a fresh container on the same data). A running container of that name is reused, but only if it uses the same data folder.
+  - Data in `data/mongo` (bind mount with `:Z` for SELinux, `--userns=keep-id` so the files belong to the user, `--image-volume=ignore`).
+  - Port `127.0.0.1:27018` (option `--db-port`), no authentication for now.
+  - Single-node replica set `rs0`, initiated on first start, for transactions; the client connects with `directConnection=true`.
+- [x] Storage (`storage.py`), database `detective_whiteboard`:
+  - `users` `{_id, name}`; `projects` `{_id, name, owner, members}`; `app_state` `{_id: user, last_whiteboard}`.
+  - `whiteboards` `{_id, project_id, name, version, chat}`, unique by project and name.
+  - `cards` `{whiteboard_id, id, order, name, x, y, width, height, picture, properties}`, unique by whiteboard and card ID.
+  - `links` `{whiteboard_id, id, order, source, target, color, style, direction, message}`, unique by whiteboard and link ID, indexed by the card at each end.
+  - A save updates the whiteboard, upserts its cards and links and deletes the missing ones in one transaction. The current user and project come from one function each.
+- [x] Server: the `/api/boards`, `/api/rename` and `/api/last` endpoints use the storage functions. Name rules unchanged. `card_template.json` is read as UTF-8.
+- [x] Stopping the app with SIGTERM or SIGHUP (closing the terminal, `kill`) also stops MongoDB. A failed start never stops a container that belongs to another app.
+- [x] Remove the test JSON files from `data/`.
+- [x] Check the API and the UI in headless Chrome against a separate test port; update `README.md` and `CLAUDE.md`.

@@ -10,7 +10,7 @@ This project is jointly developed by human developer and vibe coding agent.
 
 ## Current State and Commands
 
-- First version implemented as described in `README.md`: `src/detective_whiteboard/__init__.py` (static server, whiteboard storage in `./data` and `/api/chat` proxy to OpenAI) and `src/detective_whiteboard/static/` (`index.html`, `style.css`, `ops.js` for all board operations, `assistant.js` for the AI assistant, `app.js` for the user interface). Progress is tracked in `PLAN.md`.
+- First version implemented as described in `README.md`: `src/detective_whiteboard/__init__.py` (static server, `/api/chat` proxy to OpenAI), `container.py` (MongoDB in a Podman container, data in `./data/mongo`) and `storage.py` (whiteboards in MongoDB) and `src/detective_whiteboard/static/` (`index.html`, `style.css`, `ops.js` for all board operations, `assistant.js` for the AI assistant, `app.js` for the user interface). Progress is tracked in `PLAN.md`.
 - Card templates are in `./card_template.json`.
 - Run the app: `uv run detective-whiteboard` (options `--host`, `--port`; `--host 0.0.0.0` for LAN access). The assistant needs `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`) in `./.env`.
 - Add a dependency: `uv add <package>` (dev-only: `uv add --dev <package>`)
@@ -31,10 +31,10 @@ The application has a browser-based graphical user interface with the following 
 Whiteboard storage:
 
 - It has a create button that allows the user to create a new whiteboard. When the user creates a new whiteboard, they must give a name to the whiteboard.
-- The server manages the whiteboards for a single user without login, one JSON file per whiteboard in `./data` in the project folder. The name of the JSON file is the name of the whiteboard, so a name must not contain `/ \ : * ? " < > |`. The JSON file is self-contained and has all the information of the whiteboard, including the cards created, the properties of the cards, the links, and the locations of the cards.
+- The server manages the whiteboards in MongoDB, for a single user without login. A whiteboard name must not contain `/ \ : * ? " < > |`, since Export uses it as the file name. A whiteboard is stored and exported with all its information, including the cards created, the properties of the cards, the links, and the locations of the cards.
 - Changes to the open whiteboard are saved automatically, about one second after the last change and when the user switches whiteboards or leaves the page. There is no save button; the toolbar shows the save status.
-- Creating a whiteboard creates its JSON file. The user can open (switch to) any saved whiteboard from a list, save the open one as a copy under a new name, rename it (which renames the file) and delete it (which closes it).
-- The last opened whiteboard is kept in `./data/last_whiteboard.txt` and opens on startup. It is a separate file rather than taken from file times because the files are temporary: whiteboards may move to MongoDB and links to SQLite.
+- Creating a whiteboard stores it at once. The user can open (switch to) any saved whiteboard from a list, save the open one as a copy under a new name, rename it and delete it (which closes it).
+- The last opened whiteboard is kept per user and opens on startup.
 - Import uploads a JSON file from the user's computer as a new whiteboard under the name inside it; if the name is taken the user chooses to overwrite or rename. Export downloads the open whiteboard as a JSON file. Neither counts as saving.
 
 Whiteboard and card management:
@@ -68,7 +68,8 @@ Not planned: undo.
 
 ### Backend Storage
 
-- The server stores each whiteboard as self-contained JSON in `./data`. In the future, the whiteboards might move to MongoDB and the links to SQLite.
+- MongoDB runs in a Podman container that the app starts and stops itself; its files are in `./data/mongo`. Database `detective_whiteboard` has `users`, `projects`, `app_state`, `whiteboards`, `cards` and `links` (see `README.md`).
+- Planned: projects (each with several whiteboards the user switches between) and users who log in with a username and password and share projects. The storage is laid out for them; for now there is one hard-coded user, `default-user`, with one project, `Default`. MongoDB authentication comes with the users.
 
 ## General Rules
 

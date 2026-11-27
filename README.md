@@ -8,7 +8,7 @@ A browser-based whiteboard for organizing a case: cards with pictures and proper
 uv run detective-whiteboard
 ```
 
-This starts a local web server on `http://127.0.0.1:8000/` and opens the whiteboard in the default browser. Whiteboards are saved in `data/` in the folder the app is started in (ignored by git), created on first start.
+This starts MongoDB in a Podman container, then a local web server on `http://127.0.0.1:8000/`, and opens the whiteboard in the default browser. Stopping the app (Ctrl+C, closing the terminal or `kill`) stops MongoDB too. The whiteboards are stored in MongoDB, whose files are in `data/mongo/` in the folder the app is started in (ignored by git). Podman must be installed; the first start downloads the MongoDB image. See Storage.
 
 The AI assistant needs an OpenAI API key in a `.env` file in the project folder (ignored by git):
 
@@ -22,13 +22,14 @@ The chat panel offers `gpt-6-luna` and `gpt-6.2-astra` (`MODELS` in `__init__.py
 Options:
 
 - `--port N` sets the port (default 8000).
+- `--db-port N` sets the local port of MongoDB (default 27018, so it does not clash with a MongoDB installed on the machine).
 - `--host 0.0.0.0` allows access from other machines on the LAN at `http://<server IP>:<port>/`. The port may need to be opened in the firewall (for example `sudo firewall-cmd --add-port=8000/tcp`). There is no authentication, and anyone who can reach the server can read, change and delete every whiteboard and use the assistant with your API key. Other web pages open in the browser cannot: the API only accepts changes as JSON requests whose `Origin`, when sent, matches the server. Browsers only offer the save dialog on `localhost` or HTTPS, so on a LAN address Export downloads the file instead.
 
 ## Architecture
 
 The application is a single-page web app served by a minimal Python server.
 
-- Backend: `src/detective_whiteboard/__init__.py`. `main()` loads `.env` (`python-dotenv`), serves the `static/` directory (on `127.0.0.1` by default, with `Cache-Control: no-cache` so the browser picks up updated files) using the standard library `http.server` and opens the browser. `GET /api/models` returns the selectable models and the default. `GET /api/templates` reads `card_template.json` (see Card Templates) on every request and returns `{"templates": {...}}`, with an `error` and no templates when the file is broken. `POST /api/chat` forwards `instructions`, `input` and `tools` to the OpenAI Responses API with the API key added, using the requested `model` (which must be in the list) or the default, so the key never reaches the browser. It accepts only `Content-Type: application/json` and rejects requests whose `Origin` does not match the `Host`, so other web pages cannot use the key. OpenAI's certificate is checked against the CA bundle from `certifi`, since Python from python.org has none of its own. It sets `store: false`, so nothing is kept at OpenAI, and asks for encrypted reasoning, which the browser sends back with the next request. Errors come back as `{"error": {"message": ...}}`. The storage endpoints are listed under Storage.
+- Backend: `src/detective_whiteboard/__init__.py`, with `container.py` (the MongoDB container) and `storage.py` (whiteboards in MongoDB). `main()` loads `.env` (`python-dotenv`), starts MongoDB, serves the `static/` directory (on `127.0.0.1` by default, with `Cache-Control: no-cache` so the browser picks up updated files) using the standard library `http.server` and opens the browser. `GET /api/models` returns the selectable models and the default. `GET /api/templates` reads `card_template.json` (see Card Templates) on every request and returns `{"templates": {...}}`, with an `error` and no templates when the file is broken. `POST /api/chat` forwards `instructions`, `input` and `tools` to the OpenAI Responses API with the API key added, using the requested `model` (which must be in the list) or the default, so the key never reaches the browser. It accepts only `Content-Type: application/json` and rejects requests whose `Origin` does not match the `Host`, so other web pages cannot use the key. OpenAI's certificate is checked against the CA bundle from `certifi`, since Python from python.org has none of its own. It sets `store: false`, so nothing is kept at OpenAI, and asks for encrypted reasoning, which the browser sends back with the next request. Errors come back as `{"error": {"message": ...}}`. The storage endpoints are listed under Storage.
 - Frontend: `src/detective_whiteboard/static/` with `index.html`, `style.css`, `ops.js`, `assistant.js` and `app.js`. Plain HTML, CSS and JavaScript, with no framework or build step.
 
 The server stores the whiteboards (see Storage). The open whiteboard is held in the browser, which sends it to the server after every change; the browser also runs the assistant's chat loop and its tools. A future database backend would change the storage functions in the server without changing the data model or the API.
@@ -65,21 +66,37 @@ The file is read again every time a card is created and at the start of each ass
 
 ## Storage
 
-The server keeps each whiteboard as `data/<whiteboard name>.json`, and the name of the last opened whiteboard in `data/last_whiteboard.txt` (empty for none). The last whiteboard has its own file instead of being taken from file times because this file layout is temporary: the whiteboards are expected to move to MongoDB and the links to SQLite.
+The whiteboards are stored in MongoDB, which the app runs in a Podman container (`container.py`):
+
+- Image `docker.io/library/mongo:8.0`, container `detective-whiteboard-mongo-<db port>`. Every start runs a new container (`--rm`) on the same data, and stopping the app stops it. A container of that name that is still running (for example after a crash) is reused if it uses the same data folder; otherwise the app refuses to start.
+- The data folder `data/mongo` is mounted with `:Z` for SELinux and `--userns=keep-id`, so the files belong to the user. MongoDB listens on `127.0.0.1:<db port>` only and has no authentication for now; only the app uses it.
+- MongoDB runs as a single-node replica set (`rs0`, set up on the first start), which it needs for transactions. The client connects with `directConnection=true`.
+- To back up the data, stop the app and copy `data/mongo`, or export the whiteboards.
+
+Database `detective_whiteboard` (`storage.py`). It is laid out for projects and users, which are not in the app yet: for now every request comes from the user `default-user` working in its project `Default`, both created on start, and `Storage.current_user()` and `Storage.current_project()` are the only places that say so.
+
+- `users`: `{_id, name}`.
+- `projects`: `{_id, name, owner, members}`; sharing will add user IDs to `members`.
+- `app_state`: `{_id: user, last_whiteboard}`, the ID of each user's last opened whiteboard.
+- `whiteboards`: `{_id, project_id, name, version, chat}`, unique by project and name.
+- `cards`: the cards of the file format plus `whiteboard_id` and `order` (their position in the list), unique by whiteboard and card ID.
+- `links`: the links of the file format plus `whiteboard_id` and `order`, unique by whiteboard and link ID, and indexed by the card at each end.
+
+The browser still sends the whole whiteboard with every save. A save replaces the whiteboard's cards and links and deletes the ones that are gone, all in one transaction.
 
 - `GET /api/boards`: `{"boards": [names], "last": name or null}`.
 - `GET /api/boards/<name>`: the whiteboard JSON.
 - `POST /api/boards/<name>`: creates it from the JSON body; 409 if the name is taken.
-- `PUT /api/boards/<name>`: saves it, creating or replacing the file.
+- `PUT /api/boards/<name>`: saves it, creating or replacing it.
 - `DELETE /api/boards/<name>`: deletes it, and clears the last whiteboard if it was that one.
-- `POST /api/rename` with `{"from", "to"}`: renames the file and the name inside it; 409 if `to` is taken. The last whiteboard follows.
+- `POST /api/rename` with `{"from", "to"}`: renames it; 409 if `to` is taken.
 - `PUT /api/last` with `{"name"}`: sets the last whiteboard.
 
-Names are checked on the server too (400 when not allowed). A file is written to a temporary file and moved into place, so a crash never leaves half a file. Requests that change anything need `Content-Type: application/json` (except DELETE) and a matching `Origin`, as for `/api/chat`. With several tabs on one whiteboard the last save wins.
+Names are checked on the server too (400 when not allowed); the rules come from when whiteboards were files and still fit Export, which uses the name as the file name. Requests that change anything need `Content-Type: application/json` (except DELETE) and a matching `Origin`, as for `/api/chat`. With several tabs on one whiteboard the last save wins.
 
 ## Data Model and File Format
 
-A whiteboard is stored, imported and exported as one self-contained JSON file named `<whiteboard name>.json`.
+A whiteboard is imported and exported as one self-contained JSON file named `<whiteboard name>.json`. The API sends and receives whiteboards in the same format.
 
 ```json
 {
