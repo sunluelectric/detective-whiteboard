@@ -149,6 +149,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except ValueError:
             self.send_json(400, error("The request is not valid JSON."))
             return
+        if not isinstance(body, dict) or not {"instructions", "input", "tools"} <= body.keys():
+            self.send_json(400, error("The request needs instructions, input and tools."))
+            return
         self.send_json(*chat(body))
 
 

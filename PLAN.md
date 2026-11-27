@@ -94,6 +94,8 @@ Prepare for an AI assistant whose tools call the same operations as the user int
 
 ## Phase 12: AI assistant
 
+Phase 15 later moved the assistant from Chat Completions to the Responses API.
+
 The assistant is an OpenAI model with the board operations as tools. The board lives in the browser, so the browser runs the chat loop and executes the tools; the server only adds the API key and forwards requests, so the key never reaches the browser.
 
 - [x] `.env` holds `OPENAI_API_KEY` and optionally `OPENAI_MODEL` (default `gpt-6-luna`); loaded with `python-dotenv`. `.env` is ignored by git.
@@ -208,3 +210,11 @@ Branch `review-fixes-2`. Python from python.org has no CA certificates until its
 
 - [x] Add `certifi`; the server verifies OpenAI's certificate against its CA bundle.
 - [x] Check with the real app (`uv run detective-whiteboard`) and a luna turn; update `README.md`.
+
+## Phase 24: Chat request check
+
+Branch `fix-chat-request`. A JSON request to `/api/chat` without `instructions`, `input` or `tools` raised a `KeyError` and dropped the connection.
+
+- [x] Server: reject a body that is not a JSON object or lacks those fields with a 400 and a readable error.
+- [x] Note in Phase 12 that Phase 15 replaced Chat Completions with the Responses API.
+- [x] Check with a short server test.
